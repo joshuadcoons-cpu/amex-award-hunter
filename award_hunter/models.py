@@ -375,6 +375,8 @@ class RoundTrip(BaseModel):
     ground_cost_note: Optional[str] = None
     positioning_cost_two_usd: Optional[float] = None
     positioning_note: Optional[str] = None
+    cash_fare_two_usd: Optional[float] = None   # cheapest cash fare for the same legs/cabin, two passengers (Amadeus)
+    cash_fare_note: Optional[str] = None
 
     @property
     def fingerprint(self) -> str:

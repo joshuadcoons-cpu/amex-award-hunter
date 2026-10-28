@@ -131,6 +131,11 @@ def trip_is_nonstop(row: dict) -> bool:
     t = rt_from_row(row)
     return _leg_stops(t.outbound.award) == "nonstop" and _leg_stops(t.inbound.award) == "nonstop"
 
+def trip_business_only(row: dict) -> bool:
+    t = rt_from_row(row)
+    return all(leg.award.cabin.value != "premium" for leg in (t.outbound, t.inbound))
+
+
 def trip_lie_flat(row: dict) -> bool:
     """True unless a leg is a known recliner-style narrowbody. Unknown aircraft counts as OK (never over-claims)."""
     t = rt_from_row(row)
@@ -141,7 +146,7 @@ def trip_is_new(row: dict, last_started: str | None) -> bool:
     return bool(last_started) and (row.get("first_seen_at") or "") >= last_started
 
 def deal_card(t: RoundTrip, row: dict, *, is_new: bool, alternatives: int, cfg, rank: int | None = None,
-              emphasis: str = "cash", alt_label: str = "returns", bal: dict | None = None) -> str:
+              emphasis: str = "cash", alt_label: str = "returns", bal: dict | None = None, history: dict | None = None) -> str:
     o, i = t.outbound.award, t.inbound.award
     cash = (f"${t.total_fees_two_major:,.0f}" + ("" if t.fees_complete else "+")) if t.total_fees_two_major is not None else "n/a"
     cash_sub = "cash for two, taxes & fees" + ("" if t.fees_complete else " (one leg missing fees)") if t.total_fees_two_major is not None else "fees not reported"
@@ -165,6 +170,18 @@ def deal_card(t: RoundTrip, row: dict, *, is_new: bool, alternatives: int, cfg, 
         badges += '<span class="ah-badge warn">recliner seat?</span>'
     if any(transfer_warning(leg.award.source, leg.award.remaining_seats) for leg in (t.outbound, t.inbound)):
         badges += '<span class="ah-badge warn">slow transfer</span>'
+    if any(leg.award.cabin.value == "premium" for leg in (t.outbound, t.inbound)):
+        badges += '<span class="ah-badge warn">premium econ</span>'
+    tips = [w for w in t.warnings if w.startswith("Aeroplan tip")]
+    if tips:
+        badges += f'<span class="ah-badge tier" title="{_esc(tips[0])}">stopover 5k</span>'
+    if history:
+        for leg in (t.outbound, t.inbound):
+            a, pts = leg.award, leg.amex.amex_points_per_passenger
+            h = history.get((a.origin, a.destination, a.source))
+            if h and pts and h["days"] >= 7 and pts <= h["min"]:
+                badges += f'<span class="ah-badge new" title="Lowest Amex price seen for {a.origin}→{a.destination} on {_esc(short_program(a.source, leg.amex.program_name))} in the last 30 days ({h["days"]} days of data; median {h["median"]:,})">30-day low</span>'
+                break
     state, afford_txt = affordability(t.total_amex_points_two, bal or {})
     if state == "ok":
         pts_sub = 'for two &middot; <span class="ah-ok">enough &#10003;</span>'
@@ -184,9 +201,13 @@ def deal_card(t: RoundTrip, row: dict, *, is_new: bool, alternatives: int, cfg, 
     rank_html = f'<span class="ah-rank">#{rank}</span> ' if rank else ""
     cash_cls, pts_cls = ("ah-cash", "ah-pts") if emphasis != "points" else ("ah-pts", "ah-cash")
     extras_detail = "; ".join(x for x in (t.ground_cost_note, t.positioning_note) if x)
+    cpp_txt = ""
+    if t.cash_fare_two_usd and t.total_amex_points_two:
+        cpp = (t.cash_fare_two_usd - (t.total_fees_two_major or 0)) / t.total_amex_points_two * 100
+        cpp_txt = f' &middot; <span title="{_esc(t.cash_fare_note or "")}"><b>{cpp:.1f}&cent;/pt</b> vs cash</span>'
     all_in_txt = ((f'<span title="Cash + points at {cfg.cents_per_point:g}&cent; each' + (f'. Extras: {_esc(extras_detail)}' if extras_detail else "")
-                   + f'">All-in ~${all_in:,.0f}</span>') + (f" &middot; +${extras:,.0f} extras" if extras else "")
-                  if all_in is not None else "")
+                   + f'">All-in ~${all_in:,.0f}</span>') + (f" &middot; +${extras:,.0f} extras" if extras and not cpp_txt else "") + cpp_txt
+                  if all_in is not None else cpp_txt.lstrip(" &middot;"))
     legs = ""
     for label, leg in (("Out", t.outbound), ("Back", t.inbound)):
         a = leg.award

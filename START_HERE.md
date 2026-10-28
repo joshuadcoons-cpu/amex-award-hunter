@@ -84,6 +84,19 @@ tile shows it, and a **"Only what I can afford"** box filters the list.
   budget flight) and for positioning from your home airport when a trip departs elsewhere. Set your home
   airport on the Search page. Estimates are marked "~" and are deliberately conservative.
 
+### Extra signals
+* **⏰ banner** at the top of every page if no scan has succeeded in 36 hours, plus one push at noon from a
+  small second scheduled job. A quiet tool should never be mistaken for a working one.
+* **30-day low** badge: today's price is the lowest the tool has seen for that route and program in the last
+  30 days (needs a week of history first). *Route price history* on Best Deals shows the table.
+* **stopover 5k** badge: an Aeroplan one-way with a connection can add a stopover there for 5,000 points.
+* **premium econ** badge: only if you tick "Also collect premium economy" on the Search page; those legs are
+  scored lower and hidden unless you untick "Business only" on Best Deals.
+* **¢/pt vs cash**: optional. Create a free developer account at https://developers.amadeus.com, paste the
+  app key and secret into `.env` (`AMADEUS_CLIENT_ID`, `AMADEUS_CLIENT_SECRET`), and each top trip shows how
+  many cents per point the award is worth against the cash fare. Watches whose dates have passed pause
+  themselves.
+
 ### Weekly digest
 Every Sunday after the morning scan you get one message with the five cheapest complete trips, so you
 never need to open the dashboard to know whether anything moved. Change the day in Settings → Alerts.

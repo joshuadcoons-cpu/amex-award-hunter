@@ -5,6 +5,7 @@ Usage:
     python scripts/run_daily_scan.py --no-alerts
     python scripts/run_daily_scan.py --dry-run  # plan only; no API calls
     python scripts/run_daily_scan.py --test-alert  # send a test notification
+    python scripts/run_daily_scan.py --health      # alert if no successful scan in 36 hours
 
 Exit codes: 0 ok, 1 partial (some chunks failed), 2 failed/aborted, 3 configuration error.
 """
@@ -29,6 +30,7 @@ def main() -> int:
     parser.add_argument("--no-alerts", action="store_true", help="search and store, but do not send notifications")
     parser.add_argument("--dry-run", action="store_true", help="print the query plan and estimated API calls, then exit")
     parser.add_argument("--test-alert", action="store_true", help="send a test notification to every configured channel, then exit")
+    parser.add_argument("--health", action="store_true", help="check that a scan succeeded in the last 36 hours; alert if not, then exit")
     args = parser.parse_args()
 
     configure_logging()
@@ -40,6 +42,12 @@ def main() -> int:
         return 3
 
     db = Database(settings.database_path)
+    if args.health:
+        from award_hunter.scheduler import health_check
+        healthy, hours = health_check(settings, db)
+        print(f"Health: {'OK' if healthy else 'STALE'} - last good scan "
+              + (f"{hours:.1f} h ago" if hours is not None else "never"))
+        return 0 if healthy else 1
     if args.test_alert:
         from award_hunter.alerts import AlertSender
         sender = AlertSender(settings, db)

@@ -18,8 +18,9 @@ from award_hunter.database import Database
 from award_hunter.logging_config import configure_logging, mask_secret
 from award_hunter.alerts import AlertSender
 from award_hunter.bonus_tracker import last_check, sync_bonuses
+from award_hunter.cash_fares import configured as amadeus_configured
 from award_hunter.scheduler import (
-    THRESHOLDS_KEY, load_profile, load_scoring_config, load_thresholds, make_client, run_scan, save_profile, save_scoring_config,
+    HEALTH_MAX_HOURS, THRESHOLDS_KEY, load_profile, load_scoring_config, load_thresholds, make_client, run_scan, save_profile, save_scoring_config,
 )
 from award_hunter.scoring import PRIORITY_PRESETS, fees_to_usd
 from award_hunter.search import SearchProfile, build_plan, to_rows
@@ -28,7 +29,7 @@ from award_hunter.transfer_partners import PROGRAMS, SWEET_SPOTS
 from award_hunter.watchlist import Watch, match_watches, resolve_destinations
 from award_hunter.ui import (  # noqa: E402
     CARD_CSS, PALETTE, _esc, _fmt_day, _leg_stops, affordability, curve_svg, deal_card, dedupe_trips, flow_svg,
-    fmt_pts, rank_trips, rt_from_row, scored_from_row, short_program, tier_ladder_svg, tile, trip_is_new, trip_is_nonstop, trip_lie_flat,
+    fmt_pts, rank_trips, rt_from_row, scored_from_row, short_program, tier_ladder_svg, tile, trip_business_only, trip_is_new, trip_is_nonstop, trip_lie_flat,
     weights_bar_svg, when_to_go_svg,
 )
 from award_hunter.seasonality import TIMING_NOTES
@@ -296,6 +297,12 @@ with st.sidebar.expander("My Amex points", expanded=False):
 
 profile = load_profile(db)
 
+_hours = db.hours_since_last_good_scan()
+if _hours is None or _hours > HEALTH_MAX_HOURS:
+    st.warning(("No scan has finished successfully yet." if _hours is None else
+                f"No successful scan for {_hours / 24:.1f} days. The Mac was probably off or asleep at 7:30, or the scan is failing.")
+               + " Press **Scan now** on Best Deals, or check Settings → Scan history.", icon="⏰")
+
 
 # --------------------------------------------------------------------------- #
 # Home (landing): what this is and how scoring works
@@ -457,6 +464,8 @@ def page_best_deals() -> None:
         per_dest = c3.checkbox("One per city", True, help="Off = one card per destination and departure date.")
         nonstop_only = c4.checkbox("Nonstop only", False, help="Both the outbound and the return must be nonstop.")
         lie_flat_only = c4.checkbox("Lie-flat likely", False, help="Hide trips whose long-haul leg is a known recliner-style narrowbody.")
+        business_only = c3.checkbox("Business only", True, help="Untick to also see premium-economy legs (needs 'Also collect premium economy' on the Search page).") \
+            if profile.include_premium_economy else True
         affordable_only = c5.checkbox("Affordable only", False, help="Trips within the balance you entered under 'My Amex points'.") if bal["balance"] else False
         fees_known = [r["total_fees_two"] for r in trips if r["total_fees_two"] is not None]
         cash_default = min(5000, int(max(fees_known) // 100 * 100 + 100)) if fees_known else 5000
@@ -473,6 +482,9 @@ def page_best_deals() -> None:
             ranked = [r for r in ranked if r["total_points_two"] is not None and r["total_points_two"] <= bal["balance"]]
         if lie_flat_only:
             ranked = [r for r in ranked if trip_lie_flat(r)]
+        if business_only and profile.include_premium_economy:
+            ranked = [r for r in ranked if trip_business_only(r)]
+        history = db.route_history(30)
         limit = st.session_state.get("cards_limit", 9)
         all_cards = dedupe_trips(ranked, per_destination=per_dest)
         cards = all_cards[:limit]
@@ -488,7 +500,7 @@ def page_best_deals() -> None:
             with cols[idx % 3]:
                 html(deal_card(rt_from_row(row), row, is_new=trip_is_new(row, last_started), alternatives=alts, cfg=cfg, rank=idx + 1,
                                emphasis="points" if mode == "Fewest points" else "cash",
-                               alt_label="dates" if per_dest else "returns", bal=bal))
+                               alt_label="dates" if per_dest else "returns", bal=bal, history=history))
         b1, b2 = st.columns([1, 4])
         if len(all_cards) > len(cards) and b1.button(f"Show more ({len(all_cards) - len(cards)} left)"):
             st.session_state["cards_limit"] = limit + 9
@@ -517,6 +529,16 @@ def page_best_deals() -> None:
                               hoverlabel=dict(bgcolor="#ffffff", font_color="#0b0b0b"))
             st.plotly_chart(fig, use_container_width=True)
 
+    hist = db.route_history(30)
+    if any(h["days"] >= 2 for h in hist.values()):
+        with st.expander("Route price history (last 30 days)"):
+            st.caption("Lowest Amex points per person seen each day, per route and program. A card earns a **30-day low** badge "
+                       "when today's price matches the lowest seen with at least 7 days of history.")
+            st.dataframe(pd.DataFrame([{
+                "Route": f"{o} → {d}", "Program": short_program(src, PROGRAMS[src].program_name if src in PROGRAMS else src),
+                "Days seen": h["days"], "Lowest": h["min"], "Typical": h["median"], "Highest": h["max"],
+            } for (o, d, src), h in sorted(hist.items(), key=lambda kv: kv[1]["min"])]), hide_index=True, use_container_width=True,
+                column_config={k: st.column_config.NumberColumn(format="%d") for k in ("Lowest", "Typical", "Highest")})
     if awards:
       with st.expander("Cheapest one-way awards by route (when no round trip fits)"):
           best_by_route: dict[str, dict] = {}
@@ -585,6 +607,7 @@ def page_search() -> None:
             max_stops = st.selectbox("Max connections", [0, 1, 2, 3], index=min(profile.max_stops, 3))
             passengers = st.number_input("Travelers", 1, 4, profile.passengers)
             open_jaw = st.checkbox("Allow flying into one city and home from another", profile.include_open_jaw)
+            prem = st.checkbox("Also collect premium economy as a fallback (shown with a badge, scored lower)", profile.include_premium_economy)
         with st.expander("Advanced"):
             dest_options = [c for c in EUROPEAN_AIRPORTS if EUROPEAN_AIRPORTS[c].country in set(countries)] or list(EUROPEAN_AIRPORTS)
             destinations = st.multiselect("Destination airports", dest_options, default=[d for d in profile.destinations if d in dest_options],
@@ -616,7 +639,7 @@ def page_search() -> None:
             sources=[s for s in sources if PROGRAMS[s].seats_aero_source_active], start_date=start, window_days=window, passengers=passengers,
             min_seats=min_seats, include_unknown_seat_counts=include_unknown, max_amex_points_per_passenger=max_pts,
             max_fees_per_passenger_usd=float(max_fees) if max_fees else None, max_stops=max_stops, hide_mixed_cabin=hide_mixed, min_score=min_score,
-            max_observation_age_hours=float(max_age_days) * 24, home_airport=home,
+            max_observation_age_hours=float(max_age_days) * 24, home_airport=home, include_premium_economy=prem,
             min_trip_days=trip_min, max_trip_days=trip_max, include_open_jaw=open_jaw, include_return_search=return_search,
             max_airports_per_query=per_query, max_days_per_query=days_per_query, include_trips=include_trips,
         )
@@ -682,6 +705,8 @@ def page_settings() -> None:
         st.write(f"API key: `{mask_secret(settings.api_key) if settings.has_api_key else 'not set'}` (from .env, never stored in the database)")
         st.write(f"Base URL: `{settings.base_url}` · auth scheme: `{settings.auth_scheme}` · database: `{settings.database_path}`")
         st.write(budget_line())
+        st.write("Cash-fare comparison (Amadeus): " + ("**configured** (" + settings.amadeus_env + ")" if amadeus_configured(settings)
+                 else "not configured — add `AMADEUS_CLIENT_ID` / `AMADEUS_CLIENT_SECRET` to `.env` for cents-per-point on each trip"))
         if st.button("Run connection test"):
             if not settings.has_api_key:
                 st.error("No API key configured.")

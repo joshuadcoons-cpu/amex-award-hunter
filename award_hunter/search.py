@@ -24,7 +24,7 @@ from .airports import (
     filter_excluded_countries,
 )
 from .api_client import ApiAuthError, ApiError, BudgetExhaustedError, RateLimitError, SeatsAeroClient
-from .models import AwardObservation, ScoredAward, SeatConfidence
+from .models import Cabin, AwardObservation, ScoredAward, SeatConfidence
 from .normalization import normalize_many
 from .scoring import ScoringConfig, fees_to_usd, score_award
 from .transfer_bonuses import TransferEngine
@@ -51,6 +51,7 @@ class SearchProfile(BaseModel):
     window_days: int = 90
     passengers: int = 2
     cabin: str = "business"
+    include_premium_economy: bool = False  # also collect premium-economy awards as a fallback (shown with a badge)
 
     min_seats: int = 2
     include_unknown_seat_counts: bool = False
@@ -288,6 +289,8 @@ def run_search(
     all_awards: dict[str, AwardObservation] = {}
     total = len(plan.chunks)
     budget_hit = False
+    cabins_req = [profile.cabin] + (["premium"] if profile.include_premium_economy else [])
+    cabins_norm = (Cabin.BUSINESS,) + ((Cabin.PREMIUM,) if profile.include_premium_economy else ())
 
     for i, chunk in enumerate(plan.chunks, start=1):
         if progress:
@@ -300,13 +303,13 @@ def run_search(
         try:
             for page in client.iter_search(
                 chunk.origins, chunk.destinations, chunk.start, chunk.end,
-                cabins=profile.cabin, sources=chunk.sources or None, include_trips=profile.include_trips,
+                cabins=cabins_req, sources=chunk.sources or None, include_trips=profile.include_trips,
                 order_by="lowest_mileage", max_pages=profile.max_pages_per_query, cache_ttl=profile.cache_ttl_seconds,
             ):
                 pages += 1
                 result.calls_made += 1
                 records += len(page.data)
-                for obs in normalize_many(page.data, retrieved_at=retrieved_at, min_seats=profile.min_seats):
+                for obs in normalize_many(page.data, retrieved_at=retrieved_at, min_seats=profile.min_seats, cabins=cabins_norm):
                     # Keep the row inside the requested date window (API returns full-range rows per chunk).
                     if chunk.start <= obs.travel_date <= chunk.end:
                         all_awards[obs.availability_id] = obs

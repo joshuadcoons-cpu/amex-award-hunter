@@ -11,6 +11,7 @@ from typing import Callable
 
 from .alerts import Alert, AlertSender, AlertThresholds, build_alerts, build_bonus_alerts, build_summary_alert, build_watch_alerts, build_weekly_digest
 from .bonus_tracker import sync_bonuses
+from .cash_fares import attach_cash_fares
 from .api_client import DailyBudget, SeatsAeroClient
 from .config import Settings
 from .database import Database
@@ -140,12 +141,20 @@ def run_scan(settings: Settings, db: Database, *, profile: SearchProfile | None 
                                                c.chunk.origins, c.chunk.destinations)
 
     trips = match_round_trips(result.outbound, result.inbound, profile, cfg)
+    try:
+        attach_cash_fares(db, settings, trips, limit=10)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("Cash-fare comparison skipped: %s", type(exc).__name__)
     new_fps: set[str] = set()
     for t in trips:
         if db.upsert_round_trip(result.run_id, t):
             new_fps.add(t.fingerprint)
 
     thresholds = load_thresholds(db)
+    from datetime import date as _date
+    expired = db.expire_watches(_date.today().isoformat())
+    if expired:
+        log.info("Paused %d expired watch(es)", expired)
     watch_hits = match_watches(watches, result.qualifying + result.non_qualifying, cfg)
     for wid, hits in watch_hits.items():
         db.record_watch_matches(wid, len(hits))
@@ -179,3 +188,17 @@ def run_scan(settings: Settings, db: Database, *, profile: SearchProfile | None 
                   summary=f"{len(result.qualifying)} qualifying awards, {len(trips)} round trips, {new_awards} new, "
                           f"{disappeared} disappeared, coverage {result.coverage_summary()}")
     return ScanOutcome(result, trips, new_awards, changes, len(new_fps), alerts, stats, disappeared, watch_hits)
+
+
+HEALTH_MAX_HOURS = 36.0
+
+
+def health_check(settings: Settings, db: Database, *, send: bool = True) -> tuple[bool, float | None]:
+    """(healthy, hours since last good scan). When unhealthy and ``send``, push one 'not scanning' alert per day."""
+    hours = db.hours_since_last_good_scan()
+    healthy = hours is not None and hours <= HEALTH_MAX_HOURS
+    if not healthy and send:
+        from datetime import datetime, timezone as _tz
+        from .alerts import build_health_alert
+        AlertSender(settings, db).send_all([build_health_alert(hours, day=datetime.now(_tz.utc).strftime("%Y-%m-%d"))])
+    return healthy, hours

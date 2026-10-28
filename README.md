@@ -64,6 +64,14 @@ Four pages, on purpose:
 * Points balance (`points_balance` setting, sidebar): affordability text on cards and the hero, plus an
   "Only what I can afford" filter.
 
+## Health, history, premium economy, cash fares
+* `scheduler.health_check` + `run_daily_scan.py --health` (noon launchd job) alert when no scan succeeded in 36 h;
+  the dashboard shows a banner. Expired watches auto-pause.
+* `database.route_history` powers a "30-day low" badge and a history table from `award_observations`.
+* Premium economy is an opt-in second cabin (`include_premium_economy`): `normalize_availability(..., cabin=Cabin.PREMIUM)`
+  yields a separate observation with availability id `<id>:W`, scored lower, badged, hidden by default.
+* `cash_fares.py` (optional Amadeus Self-Service key) attaches a cash fare and cents-per-point to the top trips.
+
 ## Amex transfer bonuses
 `award_hunter/bonus_tracker.py` reads the public tracker at awardtravelfinder.com on every scheduled or
 dashboard scan (soft-fail), records new airline bonuses as **unverified**, retires expired ones, and raises a

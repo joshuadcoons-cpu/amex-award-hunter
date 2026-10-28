@@ -94,6 +94,10 @@ MIGRATIONS: list[tuple[int, str]] = [
         include_returns INTEGER NOT NULL DEFAULT 1, min_trip_days INTEGER NOT NULL DEFAULT 7, max_trip_days INTEGER NOT NULL DEFAULT 14,
         active INTEGER NOT NULL DEFAULT 1, notes TEXT, created_at TEXT NOT NULL, last_match_at TEXT, match_count INTEGER NOT NULL DEFAULT 0);
     """),
+    (3, """
+    CREATE INDEX IF NOT EXISTS ix_obs_route ON award_observations(origin, destination, source, retrieved_at);
+    CREATE TABLE IF NOT EXISTS cash_fares (key TEXT PRIMARY KEY, price_usd REAL, carrier TEXT, fetched_at TEXT NOT NULL);
+    """),
 ]
 
 
@@ -291,6 +295,48 @@ class Database:
 
     def record_watch_matches(self, watch_id: int, count: int) -> None:
         self.execute("UPDATE watches SET last_match_at = ?, match_count = ? WHERE id = ?", (utcnow_iso(), count, watch_id))
+
+    def expire_watches(self, today: str) -> int:
+        """Pause watches whose whole window (including the return window) is in the past."""
+        cur = self.execute(
+            "UPDATE watches SET active = 0, notes = COALESCE(notes, '') || ' [expired]' "
+            "WHERE active = 1 AND date(date_to, '+' || max_trip_days || ' days') < date(?)", (today,))
+        return cur.rowcount or 0
+
+    # -- route price history ----------------------------------------------------
+    def route_history(self, days: int = 30) -> dict[tuple, dict]:
+        """Per (origin, destination, source): distinct observation days, min and median Amex pts/pp over the window."""
+        rows = self.query(
+            "SELECT origin, destination, source, substr(retrieved_at, 1, 10) AS day, MIN(amex_points_pp) AS pts "
+            "FROM award_observations WHERE amex_points_pp IS NOT NULL AND retrieved_at >= datetime('now', ?) "
+            "GROUP BY origin, destination, source, day", (f"-{int(days)} days",))
+        by_route: dict[tuple, list[int]] = {}
+        for r in rows:
+            by_route.setdefault((r["origin"], r["destination"], r["source"]), []).append(int(r["pts"]))
+        out: dict[tuple, dict] = {}
+        for k, pts in by_route.items():
+            pts.sort()
+            out[k] = {"days": len(pts), "min": pts[0], "median": pts[len(pts) // 2], "max": pts[-1]}
+        return out
+
+    # -- cash fares --------------------------------------------------------------
+    def cash_fare_get(self, key: str) -> dict | None:
+        row = self.one("SELECT * FROM cash_fares WHERE key = ?", (key,))
+        return dict(row) if row else None
+
+    def cash_fare_set(self, key: str, price_usd: float | None, carrier: str | None) -> None:
+        self.execute("INSERT OR REPLACE INTO cash_fares(key, price_usd, carrier, fetched_at) VALUES (?, ?, ?, ?)",
+                     (key, price_usd, carrier, utcnow_iso()))
+
+    # -- health ------------------------------------------------------------------
+    def hours_since_last_good_scan(self) -> float | None:
+        row = self.one("SELECT finished_at FROM search_runs WHERE status IN ('ok', 'partial') AND finished_at IS NOT NULL ORDER BY id DESC LIMIT 1")
+        if not row:
+            return None
+        fin = datetime.fromisoformat(row["finished_at"].replace("Z", "+00:00"))
+        if fin.tzinfo is None:
+            fin = fin.replace(tzinfo=timezone.utc)
+        return (datetime.now(timezone.utc) - fin).total_seconds() / 3600.0
 
     # -- runs / coverage -----------------------------------------------------
     def start_run(self, trigger: str, config: dict) -> int:

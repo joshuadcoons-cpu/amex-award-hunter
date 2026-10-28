@@ -21,7 +21,7 @@ def test_migrations_idempotent(tmp_path):
     p = tmp_path / "x.sqlite"
     Database(p).close()
     d = Database(p)
-    assert d.schema_version() == 2 and len(d.transfer_partners()) >= 25
+    assert d.schema_version() == 3 and len(d.transfer_partners()) >= 25
     d.close()
 
 

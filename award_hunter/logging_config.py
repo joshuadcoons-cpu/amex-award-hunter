@@ -12,7 +12,7 @@ import re
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
-_SECRET_ENV_VARS = ("SEATS_AERO_API_KEY", "SMTP_PASSWORD", "ALERT_WEBHOOK_URL")
+_SECRET_ENV_VARS = ("SEATS_AERO_API_KEY", "SMTP_PASSWORD", "ALERT_WEBHOOK_URL", "AMADEUS_CLIENT_SECRET")
 _BEARER_RE = re.compile(r"(Bearer\s+)([A-Za-z0-9._\-]{8,})", re.IGNORECASE)
 _PRO_KEY_RE = re.compile(r"\bpro_[A-Za-z0-9]{12,}\b")
 

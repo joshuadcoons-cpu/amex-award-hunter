@@ -159,6 +159,7 @@ def _round_trip_body(t: RoundTrip, tz: str) -> str:
         f"Score: {t.score.total:.0f}/100",
         (f"Plus to get between cities: {t.ground_cost_note} (estimate)" if t.ground_cost_note else ""),
         (f"Plus positioning: {t.positioning_note} (estimate)" if t.positioning_note else ""),
+        (t.cash_fare_note or ""),
         "",
         f"Outbound last observed: {fmt_pacific(o.source_updated_at_utc, tz)}",
         f"Return last observed:   {fmt_pacific(i.source_updated_at_utc, tz)}",
@@ -302,6 +303,14 @@ def build_weekly_digest(trips: list[RoundTrip], *, week_key: str, qualifying: in
     head = (f"Cheapest: {top[0].destination_city} ${top[0].total_fees_two_major:,.0f} + {top[0].total_amex_points_two // 1000}k pts"
             if top and top[0].total_amex_points_two else "No complete trips this week")
     return Alert("weekly", f"weekly|{week_key}", "Weekly award digest", body, None, headline=head, priority="low")
+
+
+def build_health_alert(hours: float | None, *, day: str) -> Alert:
+    txt = (f"The last successful scan was {hours / 24:.1f} days ago." if hours is not None else "No successful scan has ever finished.")
+    return Alert("health", f"health|{day}", "Award Hunter has not scanned",
+                 txt + "\nThe Mac may have been off or asleep at 7:30, or the scan is failing. Open the dashboard and press Scan now; "
+                       "check Settings → Scan history if it keeps happening.", None,
+                 headline="No successful scan in over 36 hours", priority="high")
 
 
 def build_test_alert() -> Alert:

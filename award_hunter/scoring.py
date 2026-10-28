@@ -228,13 +228,15 @@ def score_award(award: AwardObservation, amex: AmexCalculation, cfg: ScoringConf
     conf = max(conf, 0.0)
 
     # Airline / cabin quality (lie-flat is never assumed)
-    quality = 0.7
+    quality = 0.7 if award.cabin != Cabin.PREMIUM else 0.3
+    if award.cabin == Cabin.PREMIUM:
+        penalties.append("Premium economy, not business")
     if best:
         if best.mixed_cabin:
             quality -= 0.3
         if any(s.cabin == Cabin.UNKNOWN for s in best.segments):
             quality -= 0.1
-        if (best.stops or 0) == 0 and award.source in {"aeroplan", "flyingblue", "virginatlantic", "singapore", "qatar", "emirates", "delta"}:
+        if (best.stops or 0) == 0 and award.cabin != Cabin.PREMIUM and award.source in {"aeroplan", "flyingblue", "virginatlantic", "singapore", "qatar", "emirates", "delta"}:
             quality += 0.3
     elif award.direct_available:
         quality += 0.1

@@ -20,7 +20,8 @@ case "$ans" in
     ;;
   [Oo]*)
     launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null || true
-    rm -f "$PLIST"
+    launchctl bootout "gui/$(id -u)/com.amexawardhunter.healthcheck" 2>/dev/null || true
+    rm -f "$PLIST" "$HOME/Library/LaunchAgents/com.amexawardhunter.healthcheck.plist"
     echo "Daily scan turned off."
     ;;
   *) echo "No change." ;;

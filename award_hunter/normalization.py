@@ -131,7 +131,10 @@ def _layover_stats(segments: list[Segment]) -> tuple[int | None, bool | None]:
     return longest, overnight
 
 
-def normalize_trip(trip: RawTrip, availability_id: str) -> FlightOption:
+CABIN_PREFIX = {Cabin.BUSINESS: "J", Cabin.PREMIUM: "W"}
+
+
+def normalize_trip(trip: RawTrip, availability_id: str, target: Cabin = Cabin.BUSINESS) -> FlightOption:
     segments = sorted(
         (normalize_segment(s) for s in (trip.AvailabilitySegments or [])),
         key=lambda s: (s.departs_at_local or ""),
@@ -140,7 +143,7 @@ def normalize_trip(trip: RawTrip, availability_id: str) -> FlightOption:
     cabins = [s.cabin for s in segments if s.cabin != Cabin.UNKNOWN]
     mixed: bool | None
     if segments and len(cabins) == len(segments):
-        mixed = any(c != Cabin.BUSINESS for c in cabins)
+        mixed = any(c != target for c in cabins)
     else:
         mixed = None
     longest, overnight = _layover_stats(segments)
@@ -169,14 +172,14 @@ def normalize_trip(trip: RawTrip, availability_id: str) -> FlightOption:
     )
 
 
-def _choose_best_option(options: list[FlightOption], min_seats: int) -> int | None:
-    """Pick the cheapest business-cabin option that is not mixed-cabin; prefer fewer stops."""
+def _choose_best_option(options: list[FlightOption], min_seats: int, target: Cabin = Cabin.BUSINESS) -> int | None:
+    """Pick the cheapest option in the target cabin that is not mixed-cabin; prefer fewer stops."""
     if not options:
         return None
 
     def key(idx_opt: tuple[int, FlightOption]) -> tuple:
         _, o = idx_opt
-        cabin_ok = 0 if o.cabin in (Cabin.BUSINESS, Cabin.UNKNOWN) else 1
+        cabin_ok = 0 if o.cabin in (target, Cabin.UNKNOWN) else 1
         mixed = 1 if o.mixed_cabin else 0
         seats_ok = 0 if (o.remaining_seats or 0) >= min_seats else 1
         return (cabin_ok, mixed, seats_ok, o.mileage_cost or 10**9, o.stops if o.stops is not None else 9,
@@ -191,9 +194,16 @@ def normalize_availability(
     retrieved_at: datetime | None = None,
     endpoint: str = "/search",
     min_seats: int = 2,
+    cabin: Cabin = Cabin.BUSINESS,
 ) -> AwardObservation | None:
-    """Normalize one business-class availability. Returns None when J is not available."""
-    if not raw.JAvailable:
+    """Normalize one availability row for one cabin (business by default, premium economy on request).
+
+    Returns None when that cabin is not available. A premium-economy observation gets the
+    availability id suffixed with ``:W`` so both cabins from one row can coexist in storage.
+    """
+    pfx = CABIN_PREFIX.get(cabin, "J")
+    g = lambda name: getattr(raw, f"{pfx}{name}", None)  # noqa: E731
+    if not g("Available"):
         return None
     retrieved_at = retrieved_at or datetime.now(timezone.utc)
     travel_date = parse_date(raw.ParsedDate) or parse_date(raw.Date)
@@ -202,25 +212,26 @@ def normalize_availability(
         return None
 
     missing: list[str] = []
-    miles = _mileage_int(raw.JMileageCostRaw, raw.JMileageCost)
+    miles = _mileage_int(g("MileageCostRaw"), g("MileageCost"))
     if miles is None:
         missing.append("miles")
-    seats, confidence = _seat_confidence(raw.JAvailable, raw.JRemainingSeats)
+    seats, confidence = _seat_confidence(g("Available"), g("RemainingSeats"))
     if confidence != SeatConfidence.REPORTED:
         missing.append("seat_count")
-    taxes = raw.JTotalTaxes
+    taxes = g("TotalTaxes")
     # A zero total is treated as "not provided": government taxes alone make a $0 transatlantic
     # business award impossible, and a cash-first ranking must never reward a placeholder zero.
     fees_known = taxes is not None and taxes > 0
     if not fees_known:
         missing.append("taxes")
-    if not raw.JAirlines:
+    if not g("Airlines"):
         missing.append("airlines")
 
-    options = [normalize_trip(t, raw.ID) for t in (raw.AvailabilityTrips or [])]
-    # Trip-level records are authoritative for business cabin; keep only J (or unknown) trips.
-    options = [o for o in options if o.cabin in (Cabin.BUSINESS, Cabin.UNKNOWN)]
-    best_idx = _choose_best_option(options, min_seats)
+    avail_id = raw.ID if cabin == Cabin.BUSINESS else f"{raw.ID}:{pfx}"
+    options = [normalize_trip(t, avail_id, cabin) for t in (raw.AvailabilityTrips or [])]
+    # Trip-level records are authoritative for the cabin; keep only matching (or unknown-cabin) trips.
+    options = [o for o in options if o.cabin in (cabin, Cabin.UNKNOWN)]
+    best_idx = _choose_best_option(options, min_seats, cabin)
     if options:
         best = options[best_idx]  # type: ignore[index]
         if miles is None and best.mileage_cost:
@@ -236,12 +247,12 @@ def normalize_availability(
         missing.append("flight_details")
 
     source = (raw.Source or raw.Route.Source or "unknown").lower()
-    internal_id = hashlib.sha1(f"{raw.ID}|{source}|business".encode()).hexdigest()[:16]
+    internal_id = hashlib.sha1(f"{raw.ID}|{source}|{cabin.value}".encode()).hexdigest()[:16]
     currency = raw.TaxesCurrency or (options[best_idx].taxes_currency if options and best_idx is not None else None)
 
     return AwardObservation(
         internal_id=internal_id,
-        availability_id=raw.ID,
+        availability_id=avail_id,
         route_id=raw.RouteID or raw.Route.ID,
         source=source,
         program_name=program_name(source),
@@ -251,12 +262,12 @@ def normalize_availability(
         origin_region=raw.Route.OriginRegion,
         destination_region=raw.Route.DestinationRegion,
         travel_date=travel_date,
-        cabin=Cabin.BUSINESS,
-        direct_available=raw.JDirect,
-        airlines=raw.JAirlines,
+        cabin=cabin,
+        direct_available=g("Direct"),
+        airlines=g("Airlines"),
         distance_miles=raw.Route.Distance,
         miles_per_passenger=miles,
-        miles_display=raw.JMileageCost,
+        miles_display=g("MileageCost"),
         remaining_seats=seats,
         seat_confidence=confidence,
         taxes_minor_units=taxes if fees_known else None,
@@ -271,7 +282,8 @@ def normalize_availability(
 
 
 def normalize_many(
-    rows: Iterable[RawAvailability], *, retrieved_at: datetime | None = None, endpoint: str = "/search", min_seats: int = 2
+    rows: Iterable[RawAvailability], *, retrieved_at: datetime | None = None, endpoint: str = "/search", min_seats: int = 2,
+    cabins: tuple[Cabin, ...] = (Cabin.BUSINESS,),
 ) -> list[AwardObservation]:
     retrieved_at = retrieved_at or datetime.now(timezone.utc)
     out: list[AwardObservation] = []
@@ -280,7 +292,8 @@ def normalize_many(
         if row.ID in seen:
             continue
         seen.add(row.ID)
-        obs = normalize_availability(row, retrieved_at=retrieved_at, endpoint=endpoint, min_seats=min_seats)
-        if obs is not None:
-            out.append(obs)
+        for cabin in cabins:
+            obs = normalize_availability(row, retrieved_at=retrieved_at, endpoint=endpoint, min_seats=min_seats, cabin=cabin)
+            if obs is not None:
+                out.append(obs)
     return out

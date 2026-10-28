@@ -52,6 +52,9 @@ class Settings:
     ntfy_topic: str | None = None
     ntfy_server: str = "https://ntfy.sh"
     macos_notifications: bool = True
+    amadeus_client_id: str | None = None
+    amadeus_client_secret: str | None = None
+    amadeus_env: str = "test"
     log_level: str = "INFO"
     extra: dict = field(default_factory=dict)
 
@@ -113,6 +116,9 @@ def load_settings(env_file: str | Path | None = None, *, override_env: bool = Fa
         ntfy_topic=opt("NTFY_TOPIC"),
         ntfy_server=opt("NTFY_SERVER") or "https://ntfy.sh",
         macos_notifications=(os.environ.get("ALERT_MACOS_NOTIFICATIONS", "1").strip().lower() not in {"0", "false", "no", "off"}),
+        amadeus_client_id=opt("AMADEUS_CLIENT_ID"),
+        amadeus_client_secret=opt("AMADEUS_CLIENT_SECRET"),
+        amadeus_env=(opt("AMADEUS_ENV") or "test").lower(),
         log_level=os.environ.get("LOG_LEVEL", "INFO").strip() or "INFO",
     )
 

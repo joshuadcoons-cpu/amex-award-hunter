@@ -68,8 +68,12 @@ def build_round_trip(out: ScoredAward, inb: ScoredAward, profile: SearchProfile,
         warnings.append(f"Returns to {i.destination}, departed from {o.origin}.")
     for leg_name, leg in (("Outbound", out), ("Return", inb)):
         best = leg.award.best_option()
+        if leg.award.cabin.value == "premium":
+            warnings.append(f"{leg_name} is premium economy, not business.")
         if best and best.mixed_cabin:
             warnings.append(f"{leg_name} is mixed cabin.")
+        if leg.award.source == "aeroplan" and best and best.connection_airports:
+            warnings.append(f"Aeroplan tip: add a stopover in {city_of(best.connection_airports[0])} on this one-way for only 5,000 extra points.")
         if leg.award.seat_confidence.value != "reported":
             warnings.append(f"{leg_name}: seat count not reported; 2 seats unconfirmed.")
         elif (leg.award.remaining_seats or 0) < profile.passengers:
