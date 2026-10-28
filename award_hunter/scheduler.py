@@ -1,6 +1,6 @@
 """Daily scan orchestration: search -> persist -> detect changes -> match trips -> alert.
 
-Used by ``scripts/run_daily_scan.py`` (Windows Task Scheduler) and by the
+Used by ``scripts/run_daily_scan.py`` (launchd daily job) and by the
 dashboard's "Run Search" button so both paths behave identically.
 """
 from __future__ import annotations
@@ -9,7 +9,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import Callable
 
-from .alerts import Alert, AlertSender, AlertThresholds, build_alerts, build_bonus_alerts, build_summary_alert, build_watch_alerts
+from .alerts import Alert, AlertSender, AlertThresholds, build_alerts, build_bonus_alerts, build_summary_alert, build_watch_alerts, build_weekly_digest
 from .bonus_tracker import sync_bonuses
 from .api_client import DailyBudget, SeatsAeroClient
 from .config import Settings
@@ -156,12 +156,18 @@ def run_scan(settings: Settings, db: Database, *, profile: SearchProfile | None 
     if send_alerts:
         sender = AlertSender(settings, db)
         stats = sender.send_all(alerts, max_individual=thresholds.max_alerts_per_run)
-        if thresholds.daily_summary and trigger == "scheduled":
+        if trigger == "scheduled":
             from datetime import datetime, timezone as _tz
-            summary = build_summary_alert(run_day=datetime.now(_tz.utc).strftime("%Y-%m-%d"), qualifying=len(result.qualifying),
-                                          round_trips=len(trips), new_awards=new_awards, best_trip=trips[0] if trips else None,
-                                          calls_made=result.calls_made, errors=len(result.errors))
-            sender.send_all([summary])
+            now = datetime.now(_tz.utc)
+            extras: list[Alert] = []
+            if thresholds.daily_summary:
+                extras.append(build_summary_alert(run_day=now.strftime("%Y-%m-%d"), qualifying=len(result.qualifying),
+                                                  round_trips=len(trips), new_awards=new_awards, best_trip=trips[0] if trips else None,
+                                                  calls_made=result.calls_made, errors=len(result.errors)))
+            if thresholds.weekly_digest_weekday is not None and now.astimezone().weekday() == thresholds.weekly_digest_weekday:
+                extras.append(build_weekly_digest(trips, week_key=now.strftime("%G-W%V"), qualifying=len(result.qualifying)))
+            if extras:
+                sender.send_all(extras)
 
     status = "failed" if result.aborted else ("partial" if result.errors else "ok")
     if status == "ok" and result.run_id is not None:

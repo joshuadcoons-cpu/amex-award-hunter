@@ -40,6 +40,7 @@ class SearchProfile(BaseModel):
     """User-editable travel preferences (persisted as JSON in app_settings)."""
 
     origins: list[str] = Field(default_factory=lambda: DEFAULT_PRIMARY_ORIGINS + DEFAULT_SECONDARY_ORIGINS)
+    home_airport: str | None = None  # where you live; defaults to the first origin. Drives positioning-cost estimates.
     destinations: list[str] = Field(default_factory=lambda: list(DEFAULT_DESTINATIONS))
     excluded_destination_countries: list[str] = Field(default_factory=lambda: list(DEFAULT_EXCLUDED_DESTINATION_COUNTRIES))
     excluded_connection_airports: list[str] = Field(default_factory=list)

@@ -370,6 +370,11 @@ class RoundTrip(BaseModel):
     warnings: list[str] = Field(default_factory=list)
     destination_country: Optional[str] = None
     destination_city: Optional[str] = None
+    # Rough extras that make the all-in cash honest (per two passengers, USD). None = not applicable / unknown.
+    ground_cost_two_usd: Optional[float] = None
+    ground_cost_note: Optional[str] = None
+    positioning_cost_two_usd: Optional[float] = None
+    positioning_note: Optional[str] = None
 
     @property
     def fingerprint(self) -> str:

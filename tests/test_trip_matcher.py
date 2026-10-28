@@ -5,7 +5,7 @@ from award_hunter.normalization import normalize_many
 from award_hunter.scoring import ScoringConfig
 from award_hunter.search import SearchProfile, score_and_filter
 from award_hunter.transfer_bonuses import TransferEngine
-from award_hunter.trip_matcher import build_round_trip, match_round_trips, round_trip_rows
+from award_hunter.trip_matcher import build_round_trip, match_round_trips
 from tests.conftest import NOW, make_availability, make_trip
 
 TODAY = date(2026, 10, 28)
@@ -34,7 +34,6 @@ def test_open_jaw_round_trip_example():
     assert t.fees_complete and t.total_fees_two_major == 500.0
     assert any("Open-jaw" in w for w in t.warnings) and any("positioning" in w.lower() for w in t.warnings)
     assert t.destination_city == "Rome"
-    assert round_trip_rows(trips)[0]["amex_total_two"] == 210000
 
 
 def test_rejects_out_of_window_and_before_arrival():

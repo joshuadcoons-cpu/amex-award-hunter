@@ -16,6 +16,7 @@ import logging
 from datetime import timedelta
 
 from .airports import city_of, country_of, metro_of
+from .geo import ground_cost_pp_usd, positioning_cost_pp_usd
 from .models import RoundTrip, ScoredAward
 from .scoring import ScoringConfig, fees_to_usd, score_round_trip
 from .search import SearchProfile
@@ -42,15 +43,29 @@ def build_round_trip(out: ScoredAward, inb: ScoredAward, profile: SearchProfile,
     open_jaw_us = metro_of(o.origin) != metro_of(i.destination)
     if open_jaw_eu and not profile.include_open_jaw:
         return None
+    ground_two = ground_note = None
     if open_jaw_eu:
-        same_country = country_of(o.destination) == country_of(i.origin)
-        warnings.append(
-            f"Open-jaw: arrive {city_of(o.destination)}, depart {city_of(i.origin)}"
-            + ("" if same_country else " (different countries)") + ". Transport between cities not included.")
-    if open_jaw_us:
-        warnings.append(f"Returns to {i.destination}, departed from {o.origin}: positioning required.")
-    if out.positioning_required:
-        warnings.append(f"Outbound departs {o.origin}, which is not one of your home airports.")
+        est = ground_cost_pp_usd(o.destination, i.origin)
+        if est:
+            ground_two = est[0] * profile.passengers
+            ground_note = f"~${ground_two:,.0f} for two by {est[1]} {city_of(o.destination)} → {city_of(i.origin)}"
+        warnings.append(f"Open-jaw: arrive {city_of(o.destination)}, depart {city_of(i.origin)}. "
+                        + (f"Getting between them: {ground_note} (estimate)." if ground_note else "Transport between cities not included."))
+    pos_two = pos_note = None
+    home = (profile.home_airport or (profile.origins[0] if profile.origins else o.origin)).upper()
+    legs_away = [c for c in (o.origin, i.destination) if metro_of(c) != metro_of(home)]
+    if legs_away:
+        total, parts = 0.0, []
+        for code in legs_away:
+            est = positioning_cost_pp_usd(home, code)
+            if est and est[0] > 0:
+                total += est[0] * profile.passengers
+                parts.append(f"{home}↔{code} by {est[1]}")
+        if total:
+            pos_two, pos_note = total, f"~${total:,.0f} positioning for two ({', '.join(parts)})"
+            warnings.append(f"Not from home: departs {o.origin}, returns to {i.destination}. {pos_note} (estimate).")
+    elif open_jaw_us:
+        warnings.append(f"Returns to {i.destination}, departed from {o.origin}.")
     for leg_name, leg in (("Outbound", out), ("Return", inb)):
         best = leg.award.best_option()
         if best and best.mixed_cabin:
@@ -75,6 +90,7 @@ def build_round_trip(out: ScoredAward, inb: ScoredAward, profile: SearchProfile,
         total_amex_points_two=total_points, total_fees_two_major=round(total_fees, 2) if total_fees is not None else None,
         fees_complete=fees_complete, fees_currency="USD" if total_fees is not None else None, score=score, warnings=warnings,
         destination_country=country_of(o.destination), destination_city=city_of(o.destination),
+        ground_cost_two_usd=ground_two, ground_cost_note=ground_note, positioning_cost_two_usd=pos_two, positioning_note=pos_note,
     )
 
 
@@ -101,35 +117,3 @@ def match_round_trips(outbound: list[ScoredAward], inbound: list[ScoredAward], p
     return trips[:limit]
 
 
-def best_per_destination(trips: list[RoundTrip]) -> list[RoundTrip]:
-    seen: set[str] = set()
-    out: list[RoundTrip] = []
-    for t in trips:
-        key = f"{t.destination_city}|{t.outbound.award.travel_date}|{t.inbound.award.travel_date}"
-        if key in seen:
-            continue
-        seen.add(key)
-        out.append(t)
-    return out
-
-
-def round_trip_rows(trips: list[RoundTrip]) -> list[dict]:
-    rows = []
-    for t in trips:
-        o, i = t.outbound.award, t.inbound.award
-        rows.append({
-            "destination": f"{t.destination_city}, {t.destination_country}",
-            "outbound": f"{o.origin}->{o.destination} {o.travel_date}",
-            "return": f"{i.origin}->{i.destination} {i.travel_date}",
-            "days": t.trip_days,
-            "programs": f"{t.outbound.amex.program_name} / {t.inbound.amex.program_name}",
-            "amex_total_two": t.total_amex_points_two,
-            "fees_total_two_usd": t.total_fees_two_major,
-            "fees_complete": t.fees_complete,
-            "open_jaw": t.open_jaw_europe or t.open_jaw_us,
-            "score": t.score.total,
-            "tier": t.score.tier,
-            "warnings": " | ".join(t.warnings),
-            "fingerprint": t.fingerprint,
-        })
-    return rows

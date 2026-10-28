@@ -6,9 +6,10 @@
 | 2 | 60–180 day multi-airport, multi-program search with chunking, pagination, two-seat business filtering, completeness tracking, CSV export | Complete (mocked tests). |
 | 3 | Amex transfer partners/bonuses, increment rounding, expired-bonus exclusion, round-trip + open-jaw matching, 0–100 scoring | Complete (mocked tests). |
 | 4 | Streamlit dashboard: overview, search, results, calendar, trip builder, deal details, settings | Complete; every page smoke-tested with Streamlit AppTest. |
-| 5 | SQLite history, change detection (new / price drop / seats up / disappeared), email+webhook alerts with dedupe, daily scan script, Task Scheduler setup | Complete (mocked tests). |
-| 6 | Docs, Windows setup, test coverage | This document, README, SETUP_WINDOWS, API_NOTES, SCORING. |
+| 5 | SQLite history, change detection (new / price drop / seats up / disappeared), email+webhook alerts with dedupe, daily scan script, launchd setup | Complete (mocked tests). |
+| 6 | Docs, test coverage | This document, README, SETUP_MAC, API_NOTES, SCORING. |
 | 7 | Live validation, cash-first scoring presets, Mac notifications + ntfy push, per-run alert cap, Best Deals home page, double-click Mac installer/launchers, START_HERE guide | Complete. Live connection and full scans run against the real Partner API (raw auth header). |
+| 8 | Transfer-bonus tracker, watchlist, sweet spots, points balance, seasonality calendar, deep booking links, transfer-speed warnings, ground/positioning estimates, lie-flat filter, weekly digest; Windows support removed (Mac only) | Complete. |
 
 ## Next priorities
 1. Verify Amex ratios/partners on americanexpress.com and update the partner table.

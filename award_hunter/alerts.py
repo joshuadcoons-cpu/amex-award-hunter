@@ -17,7 +17,6 @@ points, known fees, score and the observation time. Deduplication is keyed by
 """
 from __future__ import annotations
 
-import json
 import logging
 import shutil
 import smtplib
@@ -32,6 +31,7 @@ import httpx
 
 from .config import Settings
 from .models import RoundTrip, ScoredAward
+from .booking import booking_link, transfer_warning
 from .transfer_partners import PROGRAMS, sweet_spot
 
 log = logging.getLogger(__name__)
@@ -51,7 +51,8 @@ class AlertThresholds:
     round_trip_min_score: float = 78.0
     notify_seats_increase_to: int = 2
     daily_summary: bool = True
-    max_alerts_per_run: int = 4  # beyond this, remaining alerts are folded into one "more deals" message
+    max_alerts_per_run: int = 4
+    weekly_digest_weekday: int | None = 6  # 0 = Monday ... 6 = Sunday; None = off  # beyond this, remaining alerts are folded into one "more deals" message
 
 
 @dataclass
@@ -82,7 +83,9 @@ def _fmt_date(d) -> str:
         return str(d)
 
 
-def _booking_url(source: str) -> str | None:
+def _booking_url(source: str, award=None) -> str | None:
+    if award is not None:
+        return booking_link(source, award.origin, award.destination, award.travel_date)
     info = PROGRAMS.get(source)
     return info.booking_url if info else None
 
@@ -121,6 +124,9 @@ def _award_body(s: ScoredAward, tz: str) -> str:
     ]
     if s.amex.bonus_percent:
         lines.append(f"Assumes {s.amex.bonus_percent:g}% transfer bonus ({'verified' if s.amex.bonus_verified else 'UNVERIFIED'})")
+    tw = transfer_warning(a.source, a.remaining_seats)
+    if tw:
+        lines.append("WARNING: " + tw)
     return "\n".join(line for line in lines if line is not None).replace("\n\n\n", "\n\n")
 
 
@@ -151,6 +157,8 @@ def _round_trip_body(t: RoundTrip, tz: str) -> str:
         "Passengers: 2",
         "Cabin: Business",
         f"Score: {t.score.total:.0f}/100",
+        (f"Plus to get between cities: {t.ground_cost_note} (estimate)" if t.ground_cost_note else ""),
+        (f"Plus positioning: {t.positioning_note} (estimate)" if t.positioning_note else ""),
         "",
         f"Outbound last observed: {fmt_pacific(o.source_updated_at_utc, tz)}",
         f"Return last observed:   {fmt_pacific(i.source_updated_at_utc, tz)}",
@@ -158,7 +166,7 @@ def _round_trip_body(t: RoundTrip, tz: str) -> str:
     ]
     if t.warnings:
         lines += ["", "Notes:"] + [f" - {w}" for w in t.warnings]
-    return "\n".join(lines)
+    return "\n".join(line for line in lines if line != "" or True).replace("\n\n\n", "\n\n")
 
 
 def build_alerts(qualifying: list[ScoredAward], changes_by_id: dict[str, list[dict]], round_trips: list[RoundTrip],
@@ -168,7 +176,7 @@ def build_alerts(qualifying: list[ScoredAward], changes_by_id: dict[str, list[di
         a = s.award
         changes = changes_by_id.get(a.availability_id, [])
         kinds = {c["change_type"] for c in changes}
-        url = _booking_url(a.source)
+        url = _booking_url(a.source, a)
         if s.score.total >= thresholds.exceptional_min_score and ("new" in kinds or "score_improved" in kinds or "price_drop" in kinds):
             alerts.append(Alert("exceptional", a.availability_id, "Exceptional award - jump on it", _award_body(s, tz), s.score.total,
                                 headline=_award_headline(s), click_url=url, priority="high"))
@@ -194,7 +202,7 @@ def build_alerts(qualifying: list[ScoredAward], changes_by_id: dict[str, list[di
             if not t.fees_complete or t.total_fees_two_major is None or t.total_fees_two_major > thresholds.round_trip_max_fees_two_usd:
                 continue
         alerts.append(Alert("round_trip", t.fingerprint, "Complete round trip for two", _round_trip_body(t, tz), t.score.total,
-                            headline=_round_trip_headline(t), click_url=_booking_url(t.outbound.award.source),
+                            headline=_round_trip_headline(t), click_url=_booking_url(t.outbound.award.source, t.outbound.award),
                             priority="high" if t.score.total >= thresholds.exceptional_min_score else "default"))
     return alerts
 
@@ -234,7 +242,7 @@ def build_watch_alerts(matches: dict[int, list[ScoredAward]], watches_by_id: dic
             a = s.award
             out.append(Alert("watch", f"watch|{wid}|{a.availability_id}|{a.remaining_seats}", f"Watch: {name}",
                              f"Seats found for your watch \"{name}\".\n\n" + _award_body(s, tz), s.score.total,
-                             headline=f"{a.remaining_seats} seats · " + _award_headline(s), click_url=_booking_url(a.source), priority="urgent"))
+                             headline=f"{a.remaining_seats} seats · " + _award_headline(s), click_url=_booking_url(a.source, a), priority="urgent"))
     return out
 
 
@@ -274,6 +282,26 @@ def build_summary_alert(*, run_day: str, qualifying: int, round_trips: int, new_
         "Open the dashboard for details.",
     ])
     return Alert("summary", f"summary|{run_day}", "Daily scan complete", body, None, headline=headline, priority="low")
+
+
+def build_weekly_digest(trips: list[RoundTrip], *, week_key: str, qualifying: int) -> Alert:
+    """Top five complete trips by cash, once a week, so the owner never has to open the dashboard to know the state of play."""
+    complete = sorted([t for t in trips if t.fees_complete and t.total_fees_two_major is not None],
+                      key=lambda t: (t.total_fees_two_major, t.total_amex_points_two or 10**9))
+    seen, top = set(), []
+    for t in complete:
+        if t.destination_city in seen:
+            continue
+        seen.add(t.destination_city)
+        top.append(t)
+        if len(top) == 5:
+            break
+    lines = [f"{i + 1}. {_round_trip_headline(t)}" for i, t in enumerate(top)] or ["No complete round trip with known fees this week."]
+    body = "\n".join([f"{qualifying} qualifying awards on file. Cheapest complete trips for two right now:", ""] + lines
+                      + ["", "Open the dashboard for every option and the booking links."])
+    head = (f"Cheapest: {top[0].destination_city} ${top[0].total_fees_two_major:,.0f} + {top[0].total_amex_points_two // 1000}k pts"
+            if top and top[0].total_amex_points_two else "No complete trips this week")
+    return Alert("weekly", f"weekly|{week_key}", "Weekly award digest", body, None, headline=head, priority="low")
 
 
 def build_test_alert() -> Alert:
@@ -425,6 +453,3 @@ class AlertSender:
             r.raise_for_status()
         return True, None
 
-
-def alerts_to_json(alerts: list[Alert]) -> str:
-    return json.dumps([{"kind": a.kind, "title": a.title, "headline": a.headline, "score": a.score, "body": a.body} for a in alerts], indent=2)

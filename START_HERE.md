@@ -73,6 +73,21 @@ Open **My Amex points** in the sidebar and enter your Membership Rewards balance
 points you earn a month). Every trip then says **you have enough** or **short 40,000 · ~2 mo**, the hero
 tile shows it, and a **"Only what I can afford"** box filters the list.
 
+### On every trip card
+* **Verify out → / Verify return →** open the airline's award search for that exact flight and date
+  (Aeroplan and Flying Blue land on the results; other programs open their booking page).
+* The aircraft type is shown per leg. A **recliner seat?** badge means the long-haul leg is a narrowbody
+  that is not known to have lie-flat seats; tick **Lie-flat likely** to hide those.
+* A **slow transfer** badge means the program takes a day or more to receive Amex points and only the
+  seats you need are left, so the seats may be gone before the points land.
+* The all-in figure now includes a rough estimate for getting between cities on an open-jaw (train or
+  budget flight) and for positioning from your home airport when a trip departs elsewhere. Set your home
+  airport on the Search page. Estimates are marked "~" and are deliberately conservative.
+
+### Weekly digest
+Every Sunday after the morning scan you get one message with the five cheapest complete trips, so you
+never need to open the dashboard to know whether anything moved. Change the day in Settings → Alerts.
+
 ### Amex transfer bonuses
 Amex regularly offers 15–40% extra miles when you transfer to a specific airline. The tool checks a public
 tracker every scan and lists what's running on the **Home** page (and under "Amex transfer bonuses running

@@ -1,4 +1,4 @@
-"""Run one full scan (search -> persist -> match -> alert). Intended for Windows Task Scheduler.
+"""Run one full scan (search -> persist -> match -> alert). Run daily by launchd on the Mac.
 
 Usage:
     python scripts/run_daily_scan.py            # full scan with alerts

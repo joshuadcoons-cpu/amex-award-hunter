@@ -1,6 +1,6 @@
 # Amex Award Hunter
 
-A private, local tool (macOS or Windows) that searches the **Seats.aero Partner API** across whole
+A private tool for your Mac that searches the **Seats.aero Partner API** across whole
 60–180-day windows and many airports, finds **business-class award seats for two**
 from Southern California to Europe, converts airline miles into the **American
 Express Membership Rewards points you would actually transfer**, pairs outbound and
@@ -21,16 +21,6 @@ Read **[START_HERE.md](START_HERE.md)**. Short version:
 Manual equivalent: `./scripts/setup_mac.sh`, then `./scripts/test_connection.sh`, `./scripts/start_dashboard.sh`,
 `./scripts/setup_mac_schedule.sh 07 30`. Full details: [docs/SETUP_MAC.md](docs/SETUP_MAC.md).
 
-## Quick start (Windows)
-1. Install Python 3.12+ (tick *Add to PATH*).
-2. Double-click `scripts\setup_windows.bat`.
-3. Open `.env` and paste your Seats.aero Pro API key after `SEATS_AERO_API_KEY=`.
-4. Double-click `scripts\test_connection.bat` → expect `SUCCESS`.
-5. Double-click `scripts\start_dashboard.bat` → browser opens → **Search → Search Awards**.
-6. Schedule daily scans: `powershell -ExecutionPolicy Bypass -File scripts\setup_windows_task.ps1 -Time 07:30`
-
-Full instructions and troubleshooting: [docs/SETUP_WINDOWS.md](docs/SETUP_WINDOWS.md).
-
 ## Creating the `.env` file
 Copy `.env.example` to `.env` (same folder as `app.py`) and edit:
 ```
@@ -44,12 +34,12 @@ written to the database, logs (masked), URLs or notifications.
 ## Commands
 | Task | Command (from the project folder) |
 |------|-----------------------------------|
-| Install deps | `.venv\Scripts\python.exe -m pip install -r requirements.txt` |
-| Test API connection | `.venv\Scripts\python.exe scripts\test_connection.py` |
-| Dashboard | `.venv\Scripts\python.exe -m streamlit run app.py` |
-| One scan (what the scheduler runs) | `.venv\Scripts\python.exe scripts\run_daily_scan.py` |
-| Preview the query plan without API calls | `.venv\Scripts\python.exe scripts\run_daily_scan.py --dry-run` |
-| Unit tests (mocked API, no key needed) | `.venv\Scripts\python.exe -m pytest` |
+| Install deps | `./scripts/setup_mac.sh` |
+| Test API connection | `.venv/bin/python scripts/test_connection.py` |
+| Dashboard | `.venv/bin/python -m streamlit run app.py` |
+| One scan (what the scheduler runs) | `.venv/bin/python scripts/run_daily_scan.py` |
+| Preview the query plan without API calls | `.venv/bin/python scripts/run_daily_scan.py --dry-run` |
+| Unit tests (mocked API, no key needed) | `.venv/bin/python -m pytest` |
 
 ## What the dashboard shows
 Four pages, on purpose:
@@ -103,12 +93,18 @@ award_hunter/
   search.py                Profile -> query plan -> run -> filter, coverage tracking
   transfer_partners.py     Amex MR partner reference table (seeded, editable)
   transfer_bonuses.py      Points math with ratios, increments, dated bonuses
-  trip_matcher.py          Round-trip / open-jaw pairing
+  trip_matcher.py          Round-trip / open-jaw pairing with ground + positioning estimates (geo.py)
+  booking.py               Deep links into award searches, transfer-speed warnings
+  aircraft.py              Lie-flat likelihood from the long-haul aircraft
+  ui.py                    Pure HTML/SVG builders for the dashboard
   scoring.py               0-100 scoring with cash-first / balanced / points-first presets (docs/SCORING.md)
+  seasonality.py           When-to-go calendar rules
+  bonus_tracker.py         Amex transfer-bonus detection
+  watchlist.py             Watches: seat alerts for specific trips
   database.py              SQLite schema, history, change detection
   alerts.py                Mac notification / ntfy push / email / webhook alerts, per-run cap, dedupe
   scheduler.py             run_scan orchestration shared by UI and scheduler
-scripts/                   test_connection.py, run_daily_scan.py, macOS .sh (launchd), Windows .bat/.ps1
+scripts/                   test_connection.py, run_daily_scan.py, macOS .sh helpers (launchd)
 tests/                     pytest suite with mocked Seats.aero responses
 docs/                      API_NOTES, SETUP_MAC, SETUP_WINDOWS, SCORING, DEVELOPMENT_PLAN
 ```

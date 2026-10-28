@@ -3,8 +3,7 @@
 **Non-technical path:** read [START_HERE.md](../START_HERE.md) and double-click
 `Install Award Hunter.command`. The rest of this page is the manual, step-by-step equivalent.
 
-The app is plain Python and runs identically on macOS. Only the launcher scripts differ
-from Windows (`.sh` instead of `.bat`, launchd instead of Task Scheduler). `scripts/setup_mac.sh`
+The app is plain Python. `scripts/setup_mac.sh`
 finds Python 3.12+ or, if none is installed, downloads a private copy via `uv`.
 
 ## 1. Install Python 3.12+
@@ -72,8 +71,8 @@ rm ~/Library/LaunchAgents/com.amexawardhunter.dailyscan.plist
   System Settings → Notifications if none appear.
 * **Phone push (free):** install the ntfy app, subscribe to a hard-to-guess topic, and set
   `NTFY_TOPIC=that-name` in `.env` (self-hosted server: `NTFY_SERVER=`).
-* **Webhook / email:** `ALERT_WEBHOOK_URL` or `ALERT_EMAIL_TO` + `SMTP_*` (see
-  docs/SETUP_WINDOWS.md section 8).
+* **Webhook / email:** `ALERT_WEBHOOK_URL` (Discord/Slack-style JSON webhook) or `ALERT_EMAIL_TO` + `SMTP_HOST/PORT/USERNAME/PASSWORD/FROM`
+  (Gmail and iCloud need an app-specific password).
 * Test any of them: `.venv/bin/python scripts/run_daily_scan.py --test-alert` or
   Settings → Alerts → *Send test alert*.
 * At most `max_alerts_per_run` (default 4) individual alerts per scan; the rest are folded into one
