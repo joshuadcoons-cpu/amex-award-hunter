@@ -85,36 +85,34 @@ def rt_from_row(row: dict) -> RoundTrip:
 CARD_CSS = """
 <style>
 :root {
-  --ah-surface: #ffffff; --ah-border: #e3e2dd; --ah-ink: #0b0b0b; --ah-muted: #52514e;
+  /* The app is pinned to a light theme in .streamlit/config.toml, so these never switch with the OS dark mode. */
+  --ah-surface: #ffffff; --ah-border: #dddcd6; --ah-ink: #0b0b0b; --ah-muted: #3f3e3a;
   --ah-accent: #2a78d6; --ah-accent-soft: #e7effc; --ah-good-soft: #e2f1e4; --ah-good-ink: #0a5d1e;
   --ah-warn-soft: #fdf1dc; --ah-warn-ink: #7a4b00;
 }
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --ah-surface: #1f1f1e; --ah-border: #3a3a38; --ah-ink: #f0efec; --ah-muted: #c3c2b7;
-    --ah-accent: #3987e5; --ah-accent-soft: #1c3a5e; --ah-good-soft: #163d22; --ah-good-ink: #bfe6c6;
-    --ah-warn-soft: #4a3310; --ah-warn-ink: #f3d9a6;
-  }
-}
+/* Streamlit's own captions and labels are too faint on a bright screen. */
+[data-testid="stCaptionContainer"], [data-testid="stCaptionContainer"] p, .stCaption { color: #3f3e3a !important; font-size: .92rem !important; }
+[data-testid="stWidgetLabel"] p { color: #1f1e1c !important; }
 .ah-hero { padding: 6px 0 2px 0; }
 .ah-hero .ah-label { color: var(--ah-muted); font-size: .9rem; margin-bottom: 2px; }
 .ah-hero .ah-value { font-size: 52px; font-weight: 700; line-height: 1.05; color: var(--ah-ink); letter-spacing: -0.01em; }
 .ah-hero .ah-detail { color: var(--ah-muted); font-size: 1rem; margin-top: 4px; }
 .ah-card { border: 1px solid var(--ah-border); border-radius: 14px; padding: 16px 18px 14px 18px; background: var(--ah-surface);
-           margin-bottom: 14px; box-shadow: 0 1px 2px rgba(0,0,0,0.04); }
-.ah-card .ah-top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap; }
-.ah-card .ah-dest { font-size: 1.25rem; font-weight: 700; color: var(--ah-ink); }
-.ah-card .ah-dates { color: var(--ah-muted); font-size: .9rem; margin-top: 2px; }
-.ah-card .ah-money { display: flex; gap: 22px; align-items: flex-end; margin: 12px 0 10px 0; flex-wrap: wrap; }
+           margin-bottom: 14px; box-shadow: 0 1px 2px rgba(0,0,0,0.04); height: 384px; display: flex; flex-direction: column; overflow: hidden; }
+.ah-card .ah-dest { font-size: 1.2rem; font-weight: 700; color: var(--ah-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ah-card .ah-badges { height: 24px; margin: 4px 0 2px 0; white-space: nowrap; overflow: hidden; }
+.ah-card .ah-dates { color: var(--ah-muted); font-size: .92rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ah-card .ah-money { display: flex; gap: 22px; align-items: flex-end; margin: 12px 0 10px 0; height: 54px; }
 .ah-card .ah-cash { font-size: 2rem; font-weight: 700; line-height: 1; color: var(--ah-ink); }
 .ah-card .ah-pts { font-size: 1.25rem; font-weight: 600; line-height: 1.15; color: var(--ah-ink); }
-.ah-card .ah-sub { color: var(--ah-muted); font-size: .78rem; margin-top: 3px; }
-.ah-card .ah-leg { display: grid; grid-template-columns: 1fr auto; gap: 6px 12px; font-size: .9rem; color: var(--ah-ink);
-                   padding: 6px 0; border-top: 1px solid var(--ah-border); }
-.ah-card .ah-leg .ah-muted { color: var(--ah-muted); }
+.ah-card .ah-sub { color: var(--ah-muted); font-size: .82rem; margin-top: 3px; white-space: nowrap; }
+.ah-card .ah-leg { display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; font-size: .9rem; color: var(--ah-ink);
+                   padding: 7px 0; border-top: 1px solid var(--ah-border); height: 58px; }
+.ah-card .ah-leg > div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ah-card .ah-leg .ah-muted { color: var(--ah-muted); font-size: .84rem; }
+.ah-badge { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: .74rem; font-weight: 600; margin-right: 6px; vertical-align: middle; }
 .ah-rank { display: inline-block; min-width: 1.9em; text-align: center; padding: 1px 6px; border-radius: 8px; background: var(--ah-ink); color: var(--ah-surface);
            font-size: .8rem; font-weight: 700; margin-right: 6px; vertical-align: middle; }
-.ah-badge { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: .74rem; font-weight: 600; margin-left: 6px; vertical-align: middle; }
 .ah-badge.new { background: var(--ah-good-soft); color: var(--ah-good-ink); }
 .ah-badge.tier { background: var(--ah-accent-soft); color: var(--ah-accent); }
 .ah-badge.warn { background: var(--ah-warn-soft); color: var(--ah-warn-ink); }
@@ -122,7 +120,7 @@ CARD_CSS = """
            box-shadow: 0 1px 2px rgba(0,0,0,0.04); display: flex; flex-direction: column; justify-content: space-between; overflow: hidden; }
 .ah-tile .ah-tlabel { color: var(--ah-muted); font-size: .78rem; letter-spacing: .02em; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ah-tile .ah-tvalue { font-size: 1.75rem; font-weight: 700; line-height: 1.1; color: var(--ah-ink); margin-top: 2px; white-space: nowrap; }
-.ah-tile .ah-tsub { color: var(--ah-muted); font-size: .82rem; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ah-tile .ah-tsub { color: var(--ah-muted); font-size: .86rem; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ah-stats { margin-top: 14px; }
 .ah-tile .ah-tsub b { color: var(--ah-ink); }
 .ah-tile.ok { border-left: 5px solid #1baf7a; }
@@ -132,18 +130,20 @@ CARD_CSS = """
                box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
 .ah-herotile .ah-hlabel { color: var(--ah-muted); font-size: .85rem; letter-spacing: .04em; text-transform: uppercase; }
 .ah-herotile .ah-hvalue { font-size: 68px; font-weight: 800; line-height: 1.0; color: var(--ah-ink); letter-spacing: -0.02em; margin: 6px 0 4px 0; }
-.ah-herotile .ah-hunit { font-size: 1.05rem; color: var(--ah-muted); margin-bottom: 14px; }
+.ah-herotile .ah-hunit { font-size: 1.05rem; color: var(--ah-ink); margin-bottom: 14px; }
 .ah-herotile .ah-hrow { display: flex; gap: 28px; flex-wrap: wrap; }
 .ah-herotile .ah-hrow .k { color: var(--ah-muted); font-size: .8rem; text-transform: uppercase; letter-spacing: .03em; }
 .ah-herotile .ah-hrow .v { color: var(--ah-ink); font-size: 1.25rem; font-weight: 700; line-height: 1.2; }
 .ah-section { margin-top: 10px; }
 .ah-home-h { font-size: 1.35rem; font-weight: 700; margin: 26px 0 6px 0; color: var(--ah-ink); }
-.ah-home-p { color: var(--ah-muted); font-size: 1rem; line-height: 1.5; max-width: 820px; }
+.ah-home-p { color: var(--ah-ink); font-size: 1rem; line-height: 1.55; max-width: 860px; }
 .ah-legend { display: flex; flex-wrap: wrap; gap: 14px 22px; margin-top: 10px; }
 .ah-legend div { font-size: .9rem; color: var(--ah-ink); }
 .ah-legend span.sw { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 7px; vertical-align: -1px; }
-.ah-legend small { color: var(--ah-muted); }
-.ah-foot { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-top: 8px; flex-wrap: wrap; font-size: .8rem; color: var(--ah-muted); }
+.ah-legend small { color: var(--ah-muted); font-size: .86rem; }
+.ah-foot { display: flex; flex-direction: column; gap: 4px; margin-top: auto; padding-top: 8px; font-size: .84rem; color: var(--ah-muted); white-space: nowrap; }
+.ah-foot span { overflow: hidden; text-overflow: ellipsis; }
+.ah-foot .ah-link { font-size: .9rem; }
 .ah-foot a { color: var(--ah-accent); font-weight: 600; text-decoration: none; }
 .ah-foot a:hover { text-decoration: underline; }
 </style>
@@ -157,6 +157,15 @@ def inject_css() -> None:
 def html(fragment: str, container=None) -> None:
     """Render raw HTML. Dollar signs are escaped so Streamlit never mistakes '$50 ... $600' for LaTeX."""
     (container or st).markdown(fragment.replace("$", "&#36;"), unsafe_allow_html=True)
+
+
+SHORT_PROGRAM = {"aeroplan": "Aeroplan", "flyingblue": "Flying Blue", "virginatlantic": "Virgin Atlantic", "emirates": "Emirates",
+                 "etihad": "Etihad", "singapore": "KrisFlyer", "qantas": "Qantas", "qatar": "Qatar Avios", "delta": "Delta",
+                 "jetblue": "JetBlue", "aeromexico": "Aeromexico"}
+
+
+def short_program(source: str, fallback: str) -> str:
+    return SHORT_PROGRAM.get(source, fallback)
 
 
 def _leg_stops(award) -> str:
@@ -211,19 +220,20 @@ def deal_card(t: RoundTrip, row: dict, *, is_new: bool, alternatives: int, cfg, 
         else:
             fee = "fees n/a"
         seats = f"{a.remaining_seats} seats" if a.remaining_seats else "seats n/r"
-        legs += (f'<div class="ah-leg"><div><b>{label}</b> {a.origin} &rarr; {a.destination} &middot; {_fmt_day(a.travel_date)}'
-                 f'<div class="ah-muted">{_esc(a.airlines or "airline n/a")} &middot; {_esc(leg.amex.program_name)} &middot; {_leg_stops(a)} &middot; {seats}</div></div>'
-                 f'<div style="text-align:right">{fee}<div class="ah-muted">{(leg.amex.amex_points_per_passenger or 0) // 1000}k pts/pp</div></div></div>')
+        legs += (f'<div class="ah-leg"><div><b>{label}</b> {a.origin} &rarr; {a.destination} &middot; {a.travel_date.strftime("%b %-d")}'
+                 f'<br><span class="ah-muted">{_esc(short_program(a.source, leg.amex.program_name))} &middot; {_leg_stops(a)} &middot; {seats} &middot; {_esc(a.airlines or "airline n/a")}</span></div>'
+                 f'<div style="text-align:right">{fee}<br><span class="ah-muted">{(leg.amex.amex_points_per_passenger or 0) // 1000}k pts/pp</span></div></div>')
     return f"""
 <div class="ah-card">
-  <div class="ah-top"><div>{rank_html}<span class="ah-dest">{_esc(t.destination_city)}, {_esc(t.destination_country)}</span>{badges}
-    <div class="ah-dates">{_fmt_day(o.travel_date)} &rarr; {_fmt_day(i.travel_date)} &middot; {t.trip_days} days &middot; business class for 2</div></div></div>
+  <div class="ah-dest">{rank_html}{_esc(t.destination_city)}, {_esc(t.destination_country)}</div>
+  <div class="ah-badges">{badges}</div>
+  <div class="ah-dates">{_fmt_day(o.travel_date)} &rarr; {_fmt_day(i.travel_date)} &middot; {t.trip_days} days</div>
   <div class="ah-money">
     <div><div class="{cash_cls}">{cash}</div><div class="ah-sub">{cash_sub}</div></div>
     <div><div class="{pts_cls}">{pts} pts</div><div class="ah-sub">Amex points for two</div></div>
   </div>
   {legs}
-  <div class="ah-foot"><span>{all_in_txt}{(" &middot; " + alt) if all_in_txt and alt else alt}</span>{link}</div>
+  <div class="ah-foot"><span>{all_in_txt}{(" &middot; " + alt) if all_in_txt and alt else alt}</span><span class="ah-link">{link}</span></div>
 </div>"""
 
 
@@ -238,7 +248,7 @@ def api_tile() -> str:
     used = db.budget_load(datetime.now(timezone.utc).strftime("%Y-%m-%d"))
     remaining = db.last_remaining_quota()
     state = {"ok": "Connected", "warn": "Not tested yet", "bad": "Problem"}.get(tone, "Unknown")
-    sub = f"<b>{used}</b> calls used today" + (f" · <b>{remaining:,}</b> left at Seats.aero" if remaining is not None else "")
+    sub = f"<b>{used}</b> used today" + (f" · <b>{remaining:,}</b> calls left" if remaining is not None else "")
     if tone == "bad":
         sub = _esc(status_text)
     return tile("Seats.aero API", f"{icon} {state}", sub, tone)
@@ -520,7 +530,7 @@ def page_best_deals() -> None:
     html('<div class="ah-stats"></div>')
     s1, s2, s3, s4 = st.columns(4)
     html(tile("Round trips found", f"{len(trips):,}", f"<b>{new_trips}</b> new since last scan" if new_trips else "none new since last scan"), s1)
-    html(tile("Qualifying one-way awards", f"{len(awards):,}", "two seats, fresh, within your caps"), s2)
+    html(tile("Qualifying one-way awards", f"{len(awards):,}", "2 seats · fresh · within your caps"), s2)
     html(tile("Fewest points, round trip", f"{fewest['total_points_two'] // 1000}k" if fewest and fewest["total_points_two"] else "—",
                      f"for two · <b>{_esc(fewest['destination_city'])}</b>" if fewest else ""), s3)
     if last and last.get("finished_at"):
