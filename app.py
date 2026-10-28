@@ -260,7 +260,13 @@ def deal_card(t: RoundTrip, row: dict, *, is_new: bool, alternatives: int, cfg, 
     if spots:
         badges += '<span class="ah-badge star">&#9733; ' + ("best price" if "best" in spots else "sweet spot") + '</span>'
     state, afford_txt = affordability(t.total_amex_points_two, bal or {})
-    pts_sub = "Amex points for two" + (f' &middot; <span class="ah-{state}">{afford_txt}</span>' if afford_txt else "")
+    if state == "ok":
+        pts_sub = 'for two &middot; <span class="ah-ok">enough &#10003;</span>'
+    elif state == "short":
+        gap = t.total_amex_points_two - (bal or {}).get("balance", 0)
+        pts_sub = f'for two &middot; <span class="ah-short">short {gap // 1000}k</span>'
+    else:
+        pts_sub = "Amex points for two"
     info = PROGRAMS.get(o.source)
     link = f'<a href="{info.booking_url}" target="_blank">Verify &amp; book on {_esc(info.program_name)} &rarr;</a>' if info and info.booking_url else ""
     alt = f"+{alternatives} more {alt_label}" if alternatives else ""
@@ -757,12 +763,11 @@ def page_best_deals() -> None:
     else:
         st.subheader("Top complete trips")
         bal = load_balance()
-        c1, c2, c3, c4, c5 = st.columns([2.2, 1, 0.8, 0.9, 0.9])
+        c1, c2, c3, c4, c5 = st.columns([2.1, 1, 1, 1, 1])
         mode = c1.radio("Rank by", ["Least cash", "Fewest points", "All-in cost", "Best overall"], horizontal=True)
-        per_dest = c4.checkbox("One per destination", True, help="Off = one card per destination and departure date.")
-        nonstop_only = c5.checkbox("Nonstop only", False, help="Both the outbound and the return must be nonstop.")
-        affordable_only = c3.checkbox("Only what I can afford", False, disabled=not bal["balance"],
-                                      help="Enter your balance under 'My Amex points' in the sidebar.") if bal["balance"] else False
+        per_dest = c3.checkbox("One per city", True, help="Off = one card per destination and departure date.")
+        nonstop_only = c4.checkbox("Nonstop only", False, help="Both the outbound and the return must be nonstop.")
+        affordable_only = c5.checkbox("Affordable only", False, help="Trips within the balance you entered under 'My Amex points'.") if bal["balance"] else False
         fees_known = [r["total_fees_two"] for r in trips if r["total_fees_two"] is not None]
         cash_default = min(5000, int(max(fees_known) // 100 * 100 + 100)) if fees_known else 5000
         max_cash = c2.number_input("Max cash for two ($)", 0, 5000, cash_default, step=100)
