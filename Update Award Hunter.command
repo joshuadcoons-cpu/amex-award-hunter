@@ -2,7 +2,7 @@
 # Amex Award Hunter - fetch the latest version from GitHub. Double-click to run.
 # Keeps your .env (API key), data and logs; replaces only the program files.
 cd "$(dirname "$0")"
-REPO_URL="${AWARD_HUNTER_REPO:-https://github.com/markcoons-bot/amex-award-hunter.git}"
+REPO_URL="${AWARD_HUNTER_REPO:-https://github.com/joshuadcoons-cpu/amex-award-hunter.git}"
 echo "Amex Award Hunter - update"
 echo
 
