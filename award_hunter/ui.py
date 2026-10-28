@@ -177,9 +177,9 @@ def deal_card(t: RoundTrip, row: dict, *, is_new: bool, alternatives: int, cfg, 
         badges += f'<span class="ah-badge tier" title="{_esc(tips[0])}">stopover 5k</span>'
     if history:
         for leg in (t.outbound, t.inbound):
-            a, pts = leg.award, leg.amex.amex_points_per_passenger
+            a, leg_pts = leg.award, leg.amex.amex_points_per_passenger
             h = history.get((a.origin, a.destination, a.source))
-            if h and pts and h["days"] >= 7 and pts <= h["min"]:
+            if h and leg_pts and h["days"] >= 7 and leg_pts <= h["min"]:
                 badges += f'<span class="ah-badge new" title="Lowest Amex price seen for {a.origin}→{a.destination} on {_esc(short_program(a.source, leg.amex.program_name))} in the last 30 days ({h["days"]} days of data; median {h["median"]:,})">30-day low</span>'
                 break
     state, afford_txt = affordability(t.total_amex_points_two, bal or {})

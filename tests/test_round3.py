@@ -124,3 +124,15 @@ def test_cash_fares_cached_and_cpp(db):
     assert "5.7¢" in t.cash_fare_note
     # Not configured -> no-op
     assert attach_cash_fares(db, Settings(api_key=FAKE_KEY), trips) == 0
+
+
+def test_deal_card_total_points_survive_history_badge():
+    from award_hunter.scoring import ScoringConfig
+    from award_hunter.ui import deal_card
+    out = _scored(make_availability("o", "LAX", "FRA", "2027-01-26", miles=75000, taxes=8000))
+    ret = _scored(make_availability("r", "FCO", "LAX", "2027-02-12", miles=90000, taxes=18000, origin_region="Europe", dest_region="North America"))
+    t = match_round_trips([out], [ret], SearchProfile(start_date=date(2027, 1, 1), window_days=60, origins=["LAX"], home_airport="LAX", max_trip_days=20))[0]
+    history = {("LAX", "FRA", "aeroplan"): {"days": 10, "min": 75000, "median": 80000, "max": 90000},
+               ("FCO", "LAX", "aeroplan"): {"days": 10, "min": 90000, "median": 90000, "max": 95000}}
+    html = deal_card(t, {}, is_new=False, alternatives=0, cfg=ScoringConfig(), history=history)
+    assert "330,000 pts" in html and "30-day low" in html and "90000 pts" not in html
