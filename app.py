@@ -558,7 +558,7 @@ def when_to_go_svg(start: date, months: int = 12, found_days: set | None = None)
         first = date(y, m, 1)
         bx, by = (idx % cols) * (mw + 18), (idx // cols) * (mh + 12)
         top, _ = month_summary(y, m)
-        parts.append(f'<text x="{bx}" y="{by + 14}" font-size="13.5" font-weight="700" fill="#0b0b0b">{first:%B %Y}</text>')
+        parts.append(f'<text x="{bx}" y="{by + 14}" font-size="13.5" font-weight="700" fill="#0b0b0b">{first:%b %Y}</text>')
         parts.append(f'<text x="{bx + mw - 26}" y="{by + 14}" text-anchor="end" font-size="11.5" font-weight="600" fill="{SEASON_INK[top]}">{LABELS[top]}</text>')
         for i, wd in enumerate("MTWTFSS"):
             parts.append(f'<text x="{bx + i * (cell + gap) + cell / 2:.1f}" y="{by + 30}" text-anchor="middle" font-size="9.5" fill="#52514e">{wd}</text>')
@@ -580,7 +580,8 @@ def when_to_go_svg(start: date, months: int = 12, found_days: set | None = None)
     legend = "".join(f'<div><span class="sw" style="background:{SEASON_FILL[k]};border:1px solid {SEASON_INK[k]}"></span><b>{LABELS[k]}</b> '
                      f'<small>{ {GOOD: "most space, lowest prices", CAUTION: "shoulder or holiday week", AVOID: "peak demand, little saver space"}[k]}</small></div>'
                      for k in (GOOD, CAUTION, AVOID))
-    legend += '<div><span class="sw" style="background:#fff;border:1px solid #c9c8c1;position:relative"></span><b>•</b> <small>two business seats found in the latest scan</small></div>'
+    legend += ('<div><span class="sw" style="background:#9fd9b5;border:1px solid #0f6b2f;text-align:center;line-height:10px;font-size:11px;color:#0b0b0b">&#9679;</span>'
+               '<b>Dot</b> <small>two business seats found in the latest scan</small></div>')
     return (f'<svg viewBox="0 0 {W:.0f} {H:.0f}" width="100%" role="img" aria-label="When to go calendar">{"".join(parts)}</svg>'
             f'<div class="ah-legend">{legend}</div>')
 
