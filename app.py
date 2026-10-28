@@ -191,7 +191,7 @@ def trip_is_new(row: dict, last_started: str | None) -> bool:
 
 
 def deal_card(t: RoundTrip, row: dict, *, is_new: bool, alternatives: int, cfg, rank: int | None = None,
-              emphasis: str = "cash", alt_label: str = "other return date") -> str:
+              emphasis: str = "cash", alt_label: str = "returns") -> str:
     o, i = t.outbound.award, t.inbound.award
     cash = (f"${t.total_fees_two_major:,.0f}" + ("" if t.fees_complete else "+")) if t.total_fees_two_major is not None else "n/a"
     cash_sub = "cash for two, taxes & fees" + ("" if t.fees_complete else " (one leg missing fees)") if t.total_fees_two_major is not None else "fees not reported"
@@ -205,10 +205,10 @@ def deal_card(t: RoundTrip, row: dict, *, is_new: bool, alternatives: int, cfg, 
         badges += '<span class="ah-badge warn">open-jaw</span>'
     info = PROGRAMS.get(o.source)
     link = f'<a href="{info.booking_url}" target="_blank">Verify &amp; book on {_esc(info.program_name)} &rarr;</a>' if info and info.booking_url else ""
-    alt = f"+{alternatives} {alt_label}{'s' if alternatives != 1 else ''}" if alternatives else ""
+    alt = f"+{alternatives} more {alt_label}" if alternatives else ""
     rank_html = f'<span class="ah-rank">#{rank}</span> ' if rank else ""
     cash_cls, pts_cls = ("ah-cash", "ah-pts") if emphasis != "points" else ("ah-pts", "ah-cash")
-    all_in_txt = f"All-in about ${all_in:,.0f} at {cfg.cents_per_point:g}&cent;/pt" if all_in is not None else ""
+    all_in_txt = f"All-in ~${all_in:,.0f} at {cfg.cents_per_point:g}&cent;/pt" if all_in is not None else ""
     legs = ""
     for label, leg in (("Out", t.outbound), ("Back", t.inbound)):
         a = leg.award
@@ -572,7 +572,7 @@ def page_best_deals() -> None:
             with cols[idx % 3]:
                 html(deal_card(rt_from_row(row), row, is_new=trip_is_new(row, last_started), alternatives=alts, cfg=cfg, rank=idx + 1,
                                emphasis="points" if mode == "Fewest points" else "cash",
-                               alt_label="other date option" if per_dest else "other return date"))
+                               alt_label="dates" if per_dest else "returns"))
         b1, b2 = st.columns([1, 4])
         if len(all_cards) > len(cards) and b1.button(f"Show more ({len(all_cards) - len(cards)} left)"):
             st.session_state["cards_limit"] = limit + 9
