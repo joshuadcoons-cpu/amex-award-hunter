@@ -9,7 +9,8 @@ import logging
 from dataclasses import dataclass, field
 from typing import Callable
 
-from .alerts import Alert, AlertSender, AlertThresholds, build_alerts, build_summary_alert
+from .alerts import Alert, AlertSender, AlertThresholds, build_alerts, build_bonus_alerts, build_summary_alert
+from .bonus_tracker import sync_bonuses
 from .api_client import DailyBudget, SeatsAeroClient
 from .config import Settings
 from .database import Database
@@ -93,9 +94,15 @@ class ScanOutcome:
 
 def run_scan(settings: Settings, db: Database, *, profile: SearchProfile | None = None, trigger: str = "manual",
              send_alerts: bool = True, client: SeatsAeroClient | None = None,
-             progress: Callable[[int, int, str], None] | None = None) -> ScanOutcome:
+             progress: Callable[[int, int, str], None] | None = None, check_bonuses: bool | None = None) -> ScanOutcome:
     profile = profile or load_profile(db)
     cfg = load_scoring_config(db, profile.passengers)
+    # Refresh the Amex transfer-bonus list first so verified bonuses are in the math. Soft-fails; never blocks a scan.
+    bonus_added = []
+    if check_bonuses if check_bonuses is not None else (trigger in ("scheduled", "dashboard")):
+        if progress:
+            progress(0, 1, "Checking Amex transfer bonuses")
+        bonus_added = list(sync_bonuses(db).added)
     engine = TransferEngine.from_database(db)
     own_client = client is None
     client = client or make_client(settings, db)
@@ -135,7 +142,7 @@ def run_scan(settings: Settings, db: Database, *, profile: SearchProfile | None 
             new_fps.add(t.fingerprint)
 
     thresholds = load_thresholds(db)
-    alerts = build_alerts(result.qualifying, changes, trips, new_fps, thresholds, settings.timezone)
+    alerts = build_bonus_alerts(bonus_added, settings.timezone) + build_alerts(result.qualifying, changes, trips, new_fps, thresholds, settings.timezone)
     stats: dict[str, int] = {}
     if send_alerts:
         sender = AlertSender(settings, db)

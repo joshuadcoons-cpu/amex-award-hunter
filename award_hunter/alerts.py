@@ -222,6 +222,25 @@ def cap_alerts(alerts: list[Alert], max_individual: int) -> tuple[list[Alert], l
     return keep, rest
 
 
+def build_bonus_alerts(added, tz: str = "America/Los_Angeles") -> list[Alert]:
+    """One alert per newly detected Amex transfer bonus for a program this app searches."""
+    out: list[Alert] = []
+    for d in added:
+        info = PROGRAMS.get(d.source or "")
+        name = info.program_name if info else d.partner_text
+        ends = d.expiration_date.strftime("%b %-d") if d.expiration_date else "unknown date"
+        body = "\n".join([
+            f"Amex is offering +{d.bonus_percent:g}% when transferring Membership Rewards to {name}.",
+            f"Runs through {ends}." if d.expiration_date else "End date not listed.",
+            "Bonuses are often targeted: open your Amex account, check the transfer page, then press",
+            "\"It's in my account\" on the dashboard so the points math uses it.",
+            f"Source: {d.source_url}",
+        ])
+        out.append(Alert("bonus", f"bonus|{d.source}|{d.bonus_percent:g}|{d.expiration_date}", "Amex transfer bonus spotted", body, None,
+                         headline=f"+{d.bonus_percent:g}% Amex → {name} through {ends}", click_url=d.source_url, priority="high"))
+    return out
+
+
 def build_summary_alert(*, run_day: str, qualifying: int, round_trips: int, new_awards: int, best_trip: RoundTrip | None,
                         calls_made: int, errors: int) -> Alert:
     """One short 'scan finished' notification per day so the owner knows the scheduler is alive."""

@@ -18,6 +18,7 @@ from award_hunter.database import Database
 from award_hunter.logging_config import configure_logging, mask_secret
 from award_hunter.models import RoundTrip, ScoredAward
 from award_hunter.alerts import AlertSender
+from award_hunter.bonus_tracker import last_check, sync_bonuses
 from award_hunter.scheduler import (
     THRESHOLDS_KEY, load_profile, load_scoring_config, load_thresholds, make_client, run_scan, save_profile, save_scoring_config,
 )
@@ -203,6 +204,9 @@ def deal_card(t: RoundTrip, row: dict, *, is_new: bool, alternatives: int, cfg, 
     badges += f'<span class="ah-badge tier">{t.score.total:.0f}/100</span>'
     if t.open_jaw_europe or t.open_jaw_us:
         badges += '<span class="ah-badge warn">open-jaw</span>'
+    bonus_pcts = {leg.amex.bonus_percent for leg in (t.outbound, t.inbound) if leg.amex.bonus_percent}
+    if bonus_pcts:
+        badges += f'<span class="ah-badge new">+{max(bonus_pcts):g}% bonus</span>'
     info = PROGRAMS.get(o.source)
     link = f'<a href="{info.booking_url}" target="_blank">Verify &amp; book on {_esc(info.program_name)} &rarr;</a>' if info and info.booking_url else ""
     alt = f"+{alternatives} more {alt_label}" if alternatives else ""
@@ -222,7 +226,8 @@ def deal_card(t: RoundTrip, row: dict, *, is_new: bool, alternatives: int, cfg, 
         seats = f"{a.remaining_seats} seats" if a.remaining_seats else "seats n/r"
         legs += (f'<div class="ah-leg"><div><b>{label}</b> {a.origin} &rarr; {a.destination} &middot; {a.travel_date.strftime("%b %-d")}'
                  f'<br><span class="ah-muted">{_esc(short_program(a.source, leg.amex.program_name))} &middot; {_leg_stops(a)} &middot; {seats} &middot; {_esc(a.airlines or "airline n/a")}</span></div>'
-                 f'<div style="text-align:right">{fee}<br><span class="ah-muted">{(leg.amex.amex_points_per_passenger or 0) // 1000}k pts/pp</span></div></div>')
+                 f'<div style="text-align:right">{fee}<br><span class="ah-muted">{(leg.amex.amex_points_per_passenger or 0) // 1000}k pts/pp'
+                 f'{" w/ bonus" if leg.amex.bonus_percent else ""}</span></div></div>')
     return f"""
 <div class="ah-card">
   <div class="ah-dest">{rank_html}{_esc(t.destination_city)}, {_esc(t.destination_country)}</div>
@@ -346,6 +351,65 @@ def tier_ladder_svg() -> str:
     return f'<svg viewBox="0 0 560 230" width="100%" style="max-width:560px" role="img" aria-label="Score tiers">{"".join(parts)}</svg>'
 
 
+def bonus_panel(key_prefix: str) -> None:
+    """Amex transfer bonuses running now: detected from the tracker + anything added by hand."""
+    today = date.today()
+    check = last_check(db) or {}
+    rows = db.transfer_bonuses()
+    detected = check.get("detected") or []
+    hdr, btn = st.columns([5, 1.2])
+    hdr.markdown('<div class="ah-home-h" style="margin-top:14px">Amex transfer bonuses running now</div>', unsafe_allow_html=True)
+    btn.write("")
+    if btn.button("Check now", key=f"{key_prefix}_bonus_check", use_container_width=True):
+        res = sync_bonuses(db)
+        st.toast(res.summary())
+        st.rerun()
+    when = pacific(check["checked_at"]) if check.get("checked_at") else "never"
+    status = "" if check.get("ok", True) else f" · last check failed: {_esc(check.get('error') or '')}"
+    st.caption(f"Checked {when} against awardtravelfinder.com{status}. Bonuses are often targeted, so each one is applied to the points math "
+               f"only after you confirm it is in your Amex account.")
+
+    # Merge detected (tracker) with stored rows (which also include manual ones)
+    items: list[dict] = []
+    seen: set[tuple] = set()
+    for d in detected:
+        row = next((r for r in rows if r["source"] == d.get("source") and float(r["bonus_percent"]) == float(d["pct"])
+                    and (r.get("expiration_date") or None) == d.get("end")), None)
+        items.append({"source": d.get("source"), "label": d["partner"], "pct": float(d["pct"]), "end": d.get("end"), "row": row})
+        seen.add((d.get("source"), float(d["pct"]), d.get("end")))
+    for r in rows:
+        k = (r["source"], float(r["bonus_percent"]), r.get("expiration_date") or None)
+        if k in seen or not r.get("active"):
+            continue
+        exp = r.get("expiration_date")
+        if exp and date.fromisoformat(exp) < today:
+            continue
+        name = PROGRAMS[r["source"]].program_name if r["source"] in PROGRAMS else r["source"]
+        items.append({"source": r["source"], "label": name, "pct": float(r["bonus_percent"]), "end": exp, "row": r})
+    if not items:
+        st.info("No Amex transfer bonuses detected right now. The daily scan re-checks automatically.")
+        return
+    cols = st.columns(min(len(items), 3))
+    for i, it in enumerate(items):
+        with cols[i % 3]:
+            row = it["row"]
+            in_app = it["source"] in PROGRAMS
+            ends = f"ends {date.fromisoformat(it['end']).strftime('%b %-d')}" if it["end"] else "end date not listed"
+            if not in_app:
+                html(tile(_esc(it["label"]), f"+{it['pct']:g}%", f"{ends} · not an airline this tool searches"))
+                continue
+            name = PROGRAMS[it["source"]].program_name
+            if row and row.get("verified"):
+                html(tile(name, f"+{it['pct']:g}%", f"{ends} · <b>applied to the points math</b>", "ok"))
+            else:
+                html(tile(name, f"+{it['pct']:g}%", f"{ends} · not yet confirmed", "warn"))
+                if row and st.button("It's in my account → apply", key=f"{key_prefix}_confirm_{row['id']}", use_container_width=True,
+                                     help="Only press this after you see the bonus on the transfer page of your own Amex account."):
+                    db.confirm_bonus(int(row["id"]), today.isoformat())
+                    st.toast(f"+{it['pct']:g}% {name} bonus applied. Press Scan now to re-score deals with it.")
+                    st.rerun()
+
+
 def rank_trips(rows: list[dict], mode: str, cfg) -> list[dict]:
     big = 10**12
     if mode == "Least cash":
@@ -445,6 +509,8 @@ def page_home() -> None:
         st.session_state["nav"] = "Best Deals"
         st.rerun()
 
+    bonus_panel("home")
+
     html('<div class="ah-home-h">How it works</div>')
     html(flow_svg())
 
@@ -540,6 +606,8 @@ def page_best_deals() -> None:
         scan_val, scan_sub = "never", "press Scan now"
     html(tile("Last scan", scan_val, scan_sub), s4)
     st.write("")
+    with st.expander("Amex transfer bonuses running now", expanded=False):
+        bonus_panel("deals")
 
     if not trips and not awards:
         return

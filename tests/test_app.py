@@ -78,6 +78,7 @@ def test_search_button_runs_scan_through_dashboard(seeded_db_path, monkeypatch):
         return SeatsAeroClient(settings, budget=DailyBudget(50), transport=httpx.MockTransport(handler), sleep=lambda s: None)
 
     monkeypatch.setattr(sched, "make_client", fake_make_client)
+    monkeypatch.setattr(sched, "sync_bonuses", lambda db, **kw: type("R", (), {"added": []})())
     monkeypatch.setenv("DATABASE_PATH", str(seeded_db_path))
     monkeypatch.setenv("SEATS_AERO_API_KEY", FAKE_KEY)
     import streamlit as st

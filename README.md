@@ -65,6 +65,13 @@ Four pages, on purpose:
   priority, connection status and quota, and (advanced) editable Amex partner ratios and
   transfer bonuses, scan history.
 
+## Amex transfer bonuses
+`award_hunter/bonus_tracker.py` reads the public tracker at awardtravelfinder.com on every scheduled or
+dashboard scan (soft-fail), records new airline bonuses as **unverified**, retires expired ones, and raises a
+"transfer bonus spotted" alert. The dashboard lists running bonuses with an **"It's in my account → apply"**
+button; only a confirmed bonus enters the points math (`transfer_bonuses.TransferEngine`). Hotel and
+non-searched partners are shown for information only.
+
 ## How honesty is enforced
 * Programs that don't publish seat counts are shown as **"not reported"** and hidden
   by default – never counted as two seats.

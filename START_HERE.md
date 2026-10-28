@@ -57,6 +57,14 @@ That's it. Leave your Mac on (or just asleep with the lid open) and it does the 
 * **Settings** — alerts (with a **Send test alert** button), the *Minimize cash / Balanced /
   Minimize points* switch, and connection status.
 
+### Amex transfer bonuses
+Amex regularly offers 15–40% extra miles when you transfer to a specific airline. The tool checks a public
+tracker every scan and lists what's running on the **Home** page (and under "Amex transfer bonuses running
+now" on Best Deals). Because these offers are often targeted, nothing is applied automatically: open your
+Amex account, look at the transfer page, and if the bonus is there press **"It's in my account → apply"**.
+From then on the points math uses it, cards show a **+25% bonus** badge, and the next scan re-scores with it.
+You also get an alert the day a new bonus appears for an airline the tool searches.
+
 ### Alerts
 * **Mac notification banners** are on automatically. When the morning scan finds something good,
   a banner appears in the top-right corner. (If none appear, open *System Settings → Notifications*

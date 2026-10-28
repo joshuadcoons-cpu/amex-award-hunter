@@ -250,6 +250,10 @@ class Database:
         )
         return int(cur.lastrowid)
 
+    def confirm_bonus(self, bonus_id: int, day: str) -> None:
+        """Owner saw the bonus in their own Amex account: mark verified + eligible so the engine applies it."""
+        self.execute("UPDATE transfer_bonuses SET verified = 1, account_eligible = 1, last_verified = ?, active = 1 WHERE id = ?", (day, bonus_id))
+
     def set_bonus_active(self, bonus_id: int, active: bool) -> None:
         self.execute("UPDATE transfer_bonuses SET active = ? WHERE id = ?", (1 if active else 0, bonus_id))
 
