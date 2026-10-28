@@ -643,9 +643,7 @@ def page_home() -> None:
     else:
         html(tile("Last scan", "never", "daily at 7:30 AM once scheduled"), c3)
     st.write("")
-    if st.button("See today's Best Deals →", type="primary"):
-        st.session_state["nav"] = "Best Deals"
-        st.rerun()
+    st.button("See today's Best Deals →", type="primary", on_click=lambda: st.session_state.update(nav="Best Deals"))
 
     bonus_panel("home")
 

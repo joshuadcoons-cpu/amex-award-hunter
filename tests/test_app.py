@@ -96,3 +96,18 @@ def test_search_button_runs_scan_through_dashboard(seeded_db_path, monkeypatch):
     assert "API calls" in labels and "Qualifying awards" in labels and "Coverage" in labels
     api_calls = next(m for m in at.metric if m.label == "API calls")
     assert int(api_calls.value) >= 2
+
+
+def test_home_button_navigates_to_best_deals(seeded_db_path, monkeypatch):
+    from streamlit.testing.v1 import AppTest
+
+    monkeypatch.setenv("DATABASE_PATH", str(seeded_db_path))
+    monkeypatch.setenv("SEATS_AERO_API_KEY", FAKE_KEY)
+    import streamlit as st
+    st.cache_resource.clear()
+    at = AppTest.from_file(str(APP), default_timeout=60)
+    at.run()
+    btn = next(b for b in at.button if "Best Deals" in b.label)
+    btn.click().run()
+    assert not at.exception, [e.value for e in at.exception]
+    assert at.sidebar.radio[0].value == "Best Deals"
