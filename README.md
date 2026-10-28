@@ -52,7 +52,9 @@ written to the database, logs (masked), URLs or notifications.
 | Unit tests (mocked API, no key needed) | `.venv\Scripts\python.exe -m pytest` |
 
 ## What the dashboard shows
-Three pages, on purpose:
+Four pages, on purpose:
+* **Home** – landing page: what the tool does, a flow diagram, the scoring weights, the fee and
+  points curves drawn from the live settings, the tier ladder, and the alert rules.
 * **Best Deals** – hero number = lowest cash out of pocket for a complete round trip for two;
   cards for the top trips ranked by *Least cash / Fewest points / All-in cost / Best overall*
   with a Verify & book link; cash-vs-points chart; cheapest one-way per route; recent changes;

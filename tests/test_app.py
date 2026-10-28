@@ -16,7 +16,7 @@ from award_hunter.search import SearchProfile
 from tests.conftest import FAKE_KEY, search_response
 
 APP = Path(__file__).resolve().parent.parent / "app.py"
-PAGES = ["Best Deals", "Search", "Settings"]
+PAGES = ["Home", "Best Deals", "Search", "Settings"]
 
 
 @pytest.fixture(scope="module")
@@ -54,9 +54,11 @@ def test_dashboard_pages_render(seeded_db_path, page, monkeypatch):
     body = " ".join(m.value for m in at.markdown) + " ".join(str(m.value) for m in at.title)
     assert FAKE_KEY not in body
     if page == "Best Deals":
-        assert any("Round trips found" in m.label for m in at.metric)
         html = " ".join(m.value for m in at.markdown)
-        assert "ah-card" in html and "cash for two" in html
+        assert "Round trips found" in html and "ah-card" in html and "cash for two" in html
+    if page == "Home":
+        html = " ".join(m.value for m in at.markdown)
+        assert "How Amex Award Hunter works" in html and "Scoring weights" in html and "Score tiers" in html
     if page == "Best Deals":
         assert "Rome" in body
 

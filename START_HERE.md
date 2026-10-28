@@ -45,7 +45,9 @@ That's it. Leave your Mac on (or just asleep with the lid open) and it does the 
 | Get the newest version after Claude changes the code | Double-click **`Update Award Hunter.command`**. It pulls the latest code from GitHub and keeps your key, data and logs. No zip needed. |
 | Get alerts on your phone | See *Alerts* below. |
 
-### The dashboard (three pages)
+### The dashboard (four pages)
+* **Home** — opens first. What the tool does, how it works, and how deals are scored, with the live
+  numbers and a button to Best Deals.
 * **Best Deals** — the home page. The big number is the lowest cash you'd pay for a complete
   round trip for two. Below it, cards for the best trips; switch the ranking between
   *Least cash*, *Fewest points*, *All-in cost* and *Best overall*. Each card has a

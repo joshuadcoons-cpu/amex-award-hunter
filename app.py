@@ -118,6 +118,31 @@ CARD_CSS = """
 .ah-badge.new { background: var(--ah-good-soft); color: var(--ah-good-ink); }
 .ah-badge.tier { background: var(--ah-accent-soft); color: var(--ah-accent); }
 .ah-badge.warn { background: var(--ah-warn-soft); color: var(--ah-warn-ink); }
+.ah-tile { border: 1px solid var(--ah-border); border-radius: 14px; padding: 14px 16px; background: var(--ah-surface); height: 124px;
+           box-shadow: 0 1px 2px rgba(0,0,0,0.04); display: flex; flex-direction: column; justify-content: space-between; overflow: hidden; }
+.ah-tile .ah-tlabel { color: var(--ah-muted); font-size: .78rem; letter-spacing: .02em; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ah-tile .ah-tvalue { font-size: 1.75rem; font-weight: 700; line-height: 1.1; color: var(--ah-ink); margin-top: 2px; white-space: nowrap; }
+.ah-tile .ah-tsub { color: var(--ah-muted); font-size: .82rem; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ah-stats { margin-top: 14px; }
+.ah-tile .ah-tsub b { color: var(--ah-ink); }
+.ah-tile.ok { border-left: 5px solid #1baf7a; }
+.ah-tile.warn { border-left: 5px solid #eda100; }
+.ah-tile.bad { border-left: 5px solid #e34948; }
+.ah-herotile { border: 1px solid var(--ah-border); border-radius: 18px; padding: 22px 26px 20px 26px; background: var(--ah-surface);
+               box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+.ah-herotile .ah-hlabel { color: var(--ah-muted); font-size: .85rem; letter-spacing: .04em; text-transform: uppercase; }
+.ah-herotile .ah-hvalue { font-size: 68px; font-weight: 800; line-height: 1.0; color: var(--ah-ink); letter-spacing: -0.02em; margin: 6px 0 4px 0; }
+.ah-herotile .ah-hunit { font-size: 1.05rem; color: var(--ah-muted); margin-bottom: 14px; }
+.ah-herotile .ah-hrow { display: flex; gap: 28px; flex-wrap: wrap; }
+.ah-herotile .ah-hrow .k { color: var(--ah-muted); font-size: .8rem; text-transform: uppercase; letter-spacing: .03em; }
+.ah-herotile .ah-hrow .v { color: var(--ah-ink); font-size: 1.25rem; font-weight: 700; line-height: 1.2; }
+.ah-section { margin-top: 10px; }
+.ah-home-h { font-size: 1.35rem; font-weight: 700; margin: 26px 0 6px 0; color: var(--ah-ink); }
+.ah-home-p { color: var(--ah-muted); font-size: 1rem; line-height: 1.5; max-width: 820px; }
+.ah-legend { display: flex; flex-wrap: wrap; gap: 14px 22px; margin-top: 10px; }
+.ah-legend div { font-size: .9rem; color: var(--ah-ink); }
+.ah-legend span.sw { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 7px; vertical-align: -1px; }
+.ah-legend small { color: var(--ah-muted); }
 .ah-foot { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-top: 8px; flex-wrap: wrap; font-size: .8rem; color: var(--ah-muted); }
 .ah-foot a { color: var(--ah-accent); font-weight: 600; text-decoration: none; }
 .ah-foot a:hover { text-decoration: underline; }
@@ -127,6 +152,11 @@ CARD_CSS = """
 
 def inject_css() -> None:
     st.markdown(CARD_CSS, unsafe_allow_html=True)
+
+
+def html(fragment: str, container=None) -> None:
+    """Render raw HTML. Dollar signs are escaped so Streamlit never mistakes '$50 ... $600' for LaTeX."""
+    (container or st).markdown(fragment.replace("$", "&#36;"), unsafe_allow_html=True)
 
 
 def _leg_stops(award) -> str:
@@ -197,6 +227,115 @@ def deal_card(t: RoundTrip, row: dict, *, is_new: bool, alternatives: int, cfg, 
 </div>"""
 
 
+def tile(label: str, value: str, sub: str = "", tone: str = "") -> str:
+    return (f'<div class="ah-tile {tone}"><div class="ah-tlabel">{_esc(label)}</div><div class="ah-tvalue">{value}</div>'
+            f'<div class="ah-tsub">{sub}</div></div>')
+
+
+def api_tile() -> str:
+    """Seats.aero connection + quota as a status tile; sits above the Scan button."""
+    tone = {"🟢": "ok", "🟡": "warn", "🔴": "bad"}.get(icon, "")
+    used = db.budget_load(datetime.now(timezone.utc).strftime("%Y-%m-%d"))
+    remaining = db.last_remaining_quota()
+    state = {"ok": "Connected", "warn": "Not tested yet", "bad": "Problem"}.get(tone, "Unknown")
+    sub = f"<b>{used}</b> calls used today" + (f" · <b>{remaining:,}</b> left at Seats.aero" if remaining is not None else "")
+    if tone == "bad":
+        sub = _esc(status_text)
+    return tile("Seats.aero API", f"{icon} {state}", sub, tone)
+
+
+PALETTE = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300"]
+FACTORS = [("fees", "Cash fees", "Taxes & fees per person. Under $50 is perfect; over $600 scores almost nothing."),
+           ("points", "Amex points", "Points per person one way after the transfer ratio. 50k is perfect; 120k is zero."),
+           ("convenience", "Convenience", "Nonstop is best; each connection, long or overnight layover, or mixed cabin costs points."),
+           ("confidence", "Data confidence", "Were two seats actually reported, and how fresh is the observation?"),
+           ("quality", "Airline & cabin", "Known long-haul business products flying nonstop score highest."),
+           ("flexibility", "Transfer certainty", "Full marks when no transfer bonus has to be assumed.")]
+
+
+def weights_bar_svg(cfg) -> str:
+    w = cfg.weights
+    total = w.total() or 1
+    x, parts = 0.0, []
+    for (key, label, _), color in zip(FACTORS, PALETTE):
+        frac = getattr(w, key) / total
+        width = max(frac * 1000 - 3, 0)
+        txt = f"{frac * 100:.0f}%" if frac >= 0.07 else ""
+        parts.append(f'<rect x="{x:.1f}" y="0" width="{width:.1f}" height="44" rx="6" fill="{color}"></rect>')
+        if txt:
+            parts.append(f'<text x="{x + width / 2:.1f}" y="28" text-anchor="middle" font-size="17" font-weight="700" fill="#ffffff">{txt}</text>')
+        x += frac * 1000
+    legend = "".join(f'<div><span class="sw" style="background:{c}"></span><b>{label}</b> {getattr(w, key):g}<br><small>{desc}</small></div>'
+                     for (key, label, desc), c in zip(FACTORS, PALETTE))
+    return (f'<svg viewBox="0 0 1000 44" width="100%" height="44" role="img" aria-label="Scoring weights">{"".join(parts)}</svg>'
+            f'<div class="ah-legend" style="display:grid;grid-template-columns:repeat(3,1fr)">{legend}</div>')
+
+
+def curve_svg(anchors, *, x_label: str, x_fmt, color: str, title: str) -> str:
+    """Small line chart of a 0-1 scoring factor against its input, drawn from the live anchors."""
+    W, H, L, B, T, R = 360, 180, 44, 46, 18, 14
+    xs = [a[0] for a in anchors]
+    x0, x1 = 0, xs[-1]
+    def px(v): return L + (v - x0) / (x1 - x0) * (W - L - R)
+    def py(f): return T + (1 - f) * (H - T - B)
+    pts = [(px(0), py(anchors[0][1]))] + [(px(a), py(f)) for a, f in anchors]
+    poly = " ".join(f"{x:.1f},{y:.1f}" for x, y in pts)
+    area = poly + f" {px(x1):.1f},{py(0):.1f} {px(0):.1f},{py(0):.1f}"
+    grid = "".join(f'<line x1="{L}" y1="{py(f):.1f}" x2="{W - R}" y2="{py(f):.1f}" stroke="#e9e8e3" stroke-width="1"></line>'
+                   f'<text x="{L - 8}" y="{py(f) + 4:.1f}" text-anchor="end" font-size="11" fill="#52514e">{f:.1f}</text>' for f in (0, 0.5, 1))
+    ticks = "".join(f'<text x="{px(a):.1f}" y="{H - 26}" text-anchor="middle" font-size="11" fill="#52514e">{x_fmt(a)}</text>' for a, _ in anchors[::2])
+    dots = "".join(f'<circle cx="{px(a):.1f}" cy="{py(f):.1f}" r="4.5" fill="{color}" stroke="#ffffff" stroke-width="2"></circle>' for a, f in anchors)
+    return (f'<div style="font-weight:600;margin:8px 0 2px 0">{title}</div>'
+            f'<svg viewBox="0 0 {W} {H}" width="100%" style="max-width:{W}px" role="img" aria-label="{title}">'
+            f'{grid}<polygon points="{area}" fill="{color}" opacity="0.10"></polygon>'
+            f'<polyline points="{poly}" fill="none" stroke="{color}" stroke-width="2.5" stroke-linejoin="round"></polyline>{dots}{ticks}'
+            f'<text x="{(L + W - R) / 2:.0f}" y="{H - 6}" text-anchor="middle" font-size="11.5" fill="#52514e">{x_label}</text></svg>')
+
+
+def flow_svg() -> str:
+    steps = [("Seats.aero", "Cached award seats across 19 airports and 90+ days, in ~10 API calls"),
+             ("Amex math", "Airline miles → Membership Rewards points you would actually transfer"),
+             ("Pair trips", "Outbound + return 7–14 days apart, two business seats each way"),
+             ("Score 0–100", "Cash first, then points, convenience, data confidence"),
+             ("Alert you", "Mac banner / phone push when a deal clears your thresholds")]
+    icons = [
+        '<circle cx="0" cy="0" r="13" fill="none" stroke="#fff" stroke-width="2.5"/><circle cx="0" cy="0" r="5" fill="#fff"/>',
+        '<rect x="-14" y="-9" width="28" height="18" rx="3" fill="none" stroke="#fff" stroke-width="2.5"/><line x1="-14" y1="-2" x2="14" y2="-2" stroke="#fff" stroke-width="2.5"/>',
+        '<path d="M-14 6 L-2 -8 L4 -1 L14 -12" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round"/><path d="M-14 -6 L14 8" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round" opacity=".6"/>',
+        '<path d="M-14 10 L-14 -2 M-5 10 L-5 -10 M4 10 L4 -5 M13 10 L13 -12" stroke="#fff" stroke-width="3.5" stroke-linecap="round"/>',
+        '<path d="M-10 6 Q-10 -10 0 -10 Q10 -10 10 6 Z" fill="none" stroke="#fff" stroke-width="2.5"/><circle cx="0" cy="11" r="3" fill="#fff"/>',
+    ]
+    W, n, bw, gap = 1000, 5, 172, 35
+    parts = []
+    for i, ((title, desc), ic) in enumerate(zip(steps, icons)):
+        x = i * (bw + gap)
+        parts.append(f'<rect x="{x}" y="0" width="{bw}" height="64" rx="12" fill="{PALETTE[i]}"></rect>')
+        parts.append(f'<g transform="translate({x + 32},32)">{ic}</g>')
+        parts.append(f'<text x="{x + 60}" y="39" font-size="19" font-weight="700" fill="#ffffff">{title}</text>')
+        parts.append(f'<foreignObject x="{x}" y="72" width="{bw}" height="90"><div xmlns="http://www.w3.org/1999/xhtml" '
+                     f'style="font-size:13.5px;line-height:1.35;color:#52514e;font-family:inherit">{desc}</div></foreignObject>')
+        if i < n - 1:
+            ax = x + bw + 4
+            parts.append(f'<path d="M{ax} 32 L{ax + gap - 8} 32" stroke="#b9b8b1" stroke-width="2.5"></path>'
+                         f'<path d="M{ax + gap - 14} 25 L{ax + gap - 6} 32 L{ax + gap - 14} 39" fill="none" stroke="#b9b8b1" stroke-width="2.5"></path>')
+    return f'<svg viewBox="0 0 {W} 165" width="100%" role="img" aria-label="How Amex Award Hunter works">{"".join(parts)}</svg>'
+
+
+def tier_ladder_svg() -> str:
+    tiers = [("90–100", "Exceptional", "Drop everything and verify it", "#0d366b"),
+             ("80–89", "Excellent", "Alert-worthy; usually a great deal", "#1c5cab"),
+             ("70–79", "Worth considering", "Shown on Best Deals; compare carefully", "#5598e7"),
+             ("below 70", "Hidden", "Kept for price-drop tracking only", "#c9c8c1")]
+    parts = []
+    for i, (rng, name, desc, color) in enumerate(tiers):
+        y = i * 58
+        parts.append(f'<rect x="0" y="{y}" width="150" height="46" rx="10" fill="{color}"></rect>')
+        parts.append(f'<text x="75" y="{y + 29}" text-anchor="middle" font-size="17" font-weight="700" fill="#ffffff">{rng}</text>')
+        parts.append(f'<text x="170" y="{y + 20}" font-size="17" font-weight="700" fill="#0b0b0b">{name}</text>')
+        parts.append(f'<text x="170" y="{y + 40}" font-size="13.5" fill="#52514e">{desc}</text>')
+    return f'<svg viewBox="0 0 560 230" width="100%" style="max-width:560px" role="img" aria-label="Score tiers">{"".join(parts)}</svg>'
+
+
 def rank_trips(rows: list[dict], mode: str, cfg) -> list[dict]:
     big = 10**12
     if mode == "Least cash":
@@ -250,7 +389,8 @@ def budget_line() -> str:
 # --------------------------------------------------------------------------- #
 inject_css()
 st.sidebar.title("✈️ Amex Award Hunter")
-page = st.sidebar.radio("Navigate", ["Best Deals", "Search", "Settings"])
+NAV = ["Home", "Best Deals", "Search", "Settings"]
+page = st.sidebar.radio("Navigate", NAV, key="nav")
 icon, status_text = api_status()
 st.sidebar.markdown(f"**API** {icon} {status_text}")
 st.sidebar.caption(budget_line())
@@ -264,7 +404,72 @@ profile = load_profile(db)
 
 
 # --------------------------------------------------------------------------- #
-# Best Deals (home)
+# Home (landing): what this is and how scoring works
+# --------------------------------------------------------------------------- #
+def page_home() -> None:
+    cfg = load_scoring_config(db, profile.passengers)
+    th = load_thresholds(db)
+    last = db.last_run()
+    trips = db.round_trips(min_score=None, limit=1000)
+    complete = [r for r in trips if r["fees_complete"] and r["total_fees_two"] is not None]
+    hero = min(complete, key=lambda r: (r["total_fees_two"], r["total_points_two"] or 10**9)) if complete else None
+    preset = PRIORITY_PRESETS.get(cfg.priority, PRIORITY_PRESETS["minimize_cash"])
+
+    st.title("✈️ Amex Award Hunter")
+    html('<div class="ah-home-p">Every morning this quietly checks Seats.aero for <b>business-class award seats for two</b> from '
+                'Southern California to Europe, converts the airline miles into the <b>Amex Membership Rewards points</b> you would transfer, '
+                'pairs flights into complete round trips, ranks them with <b>the least cash out of pocket first</b>, and alerts you when '
+                'something is worth jumping on. It never books anything and never moves your points.</div>')
+    st.write("")
+    c1, c2, c3 = st.columns(3)
+    html(tile("Best deal right now", f"${hero['total_fees_two']:,.0f} cash" if hero else "—",
+                     f"+ <b>{hero['total_points_two']:,}</b> pts · {_esc(hero['destination_city'])}" if hero else "run a scan to find out"), c1)
+    html(api_tile(), c2)
+    if last and last.get("finished_at"):
+        fin = pacific(last["finished_at"])
+        html(tile("Last scan", fin.split(",")[0], fin.split(" ", 3)[-1] + f" · <b>{len(trips)}</b> round trips on file"), c3)
+    else:
+        html(tile("Last scan", "never", "daily at 7:30 AM once scheduled"), c3)
+    st.write("")
+    if st.button("See today's Best Deals →", type="primary"):
+        st.session_state["nav"] = "Best Deals"
+        st.rerun()
+
+    html('<div class="ah-home-h">How it works</div>')
+    html(flow_svg())
+
+    html('<div class="ah-home-h">How a deal is scored</div>')
+    html(f'<div class="ah-home-p">Every award gets a score from 0 to 100. Six factors each earn a share of the score; the bar shows how '
+                f'big each share is under your current priority, <b>{_esc(preset["label"])}</b>. Change it in Settings → Scoring.</div>')
+    html(weights_bar_svg(cfg))
+
+    html('<div class="ah-home-h">Why the cheapest cash wins</div>')
+    html('<div class="ah-home-p">The two biggest factors are curves, not cliffs. Cash fees lose points quickly: by $400 per person a leg has '
+                'lost three quarters of its fee score. Points are forgiving up to about 70,000 per person, which is why a 75,000-point Aeroplan '
+                'award with $58 in fees beats a 60,000-point award with $500 in fees.</div>')
+    g1, g2 = st.columns(2)
+    html(curve_svg(cfg.fee_anchors_usd, x_label="taxes & fees per person, one way (USD)", x_fmt=lambda v: f"${v:,.0f}", color=PALETTE[0],
+                          title="Cash fees → score factor"), g1)
+    html(curve_svg(cfg.points_anchors, x_label="Amex points per person, one way", x_fmt=lambda v: f"{v // 1000:.0f}k", color=PALETTE[1],
+                          title="Amex points → score factor"), g2)
+
+    html('<div class="ah-home-h">What the score means</div>')
+    l1, l2 = st.columns([1.2, 1])
+    html(tier_ladder_svg(), l1)
+    cash_cap = f"${th.round_trip_max_fees_two_usd:,.0f}" if th.round_trip_max_fees_two_usd else "no cap"
+    html(f"""<div class="ah-home-p"><b>When you get alerted</b><br>
+• A complete round trip for two with <b>{cash_cap}</b> or less in total fees, <b>{th.round_trip_max_points_two:,}</b> points or fewer, scoring <b>{th.round_trip_min_score:.0f}+</b>.<br>
+• A single award scoring <b>{th.new_award_min_score:.0f}+</b>; <b>{th.exceptional_min_score:.0f}+</b> is flagged exceptional.<br>
+• At most {th.max_alerts_per_run} alerts per scan; the rest are folded into one message. The same deal never alerts twice.<br><br>
+<b>What is never counted as good news</b><br>
+• Programs that don't report seat counts are not treated as "two seats".<br>
+• Missing or $0 fees are "not provided", never free.<br>
+• Observations older than {int(profile.max_observation_age_hours // 24)} days don't qualify.<br>
+• Every result is a cached observation: <b>verify with the airline before transferring points</b>.</div>""", l2)
+
+
+# --------------------------------------------------------------------------- #
+# Best Deals
 # --------------------------------------------------------------------------- #
 def page_best_deals() -> None:
     cfg = load_scoring_config(db, profile.passengers)
@@ -273,48 +478,61 @@ def page_best_deals() -> None:
     trips = db.round_trips(min_score=None, limit=1000)
     awards = db.current_awards(qualifying_only=True, min_score=profile.min_score)
 
-    t1, t2 = st.columns([4, 1])
-    t1.title("Best Deals")
+    st.title("Best Deals")
     preset = PRIORITY_PRESETS.get(cfg.priority, PRIORITY_PRESETS["minimize_cash"])
-    t1.caption(f"Business class for two, Southern California ⇄ Europe · ranking: **{preset['label']}** "
-               f"· last scan {pacific(last['finished_at']) if last and last.get('finished_at') else 'never'}")
-    t2.write("")
-    if t2.button("🔄 Scan now", use_container_width=True, disabled=not settings.has_api_key, help="About a minute; ~10 API calls."):
-        bar = st.progress(0.0, text="Starting…")
-        with st.spinner("Searching Seats.aero…"):
-            outcome = run_scan(settings, db, profile=profile, trigger="dashboard", send_alerts=True,
-                               progress=lambda i, n, label: bar.progress(i / n, text=f"[{i}/{n}] {label}"))
-        bar.empty()
-        st.toast(f"Scan done: {len(outcome.result.qualifying)} awards, {len(outcome.round_trips)} trips, {outcome.new_round_trips} new")
-        st.rerun()
+    st.caption(f"Business class for two, Southern California ⇄ Europe · ranking: **{preset['label']}** · see **Home** for how scoring works")
 
     if not trips and not awards:
-        st.warning("Nothing stored yet. Go to **Search** and press **Search Awards**, or wait for the first scheduled scan.")
-        return
+        st.warning("Nothing stored yet. Press **Scan now**, or wait for the first scheduled scan.")
 
-    # Hero: the single number this dashboard leads with.
     complete = [r for r in trips if r["fees_complete"] and r["total_fees_two"] is not None]
     hero = min(complete, key=lambda r: (r["total_fees_two"], r["total_points_two"] or 10**9)) if complete else None
-    h1, h2 = st.columns([3, 2])
+    h1, h2 = st.columns([3.2, 1.1])
     with h1:
         if hero:
-            st.markdown(f"""<div class="ah-hero"><div class="ah-label">Lowest cash out of pocket for a complete round trip, two people</div>
-<div class="ah-value">${hero['total_fees_two']:,.0f}</div>
-<div class="ah-detail">+ {hero['total_points_two']:,} Amex points · {hero['destination_city']} · {hero['out_date']} → {hero['in_date']} ({hero['trip_days']} days)</div></div>""",
-                        unsafe_allow_html=True)
+            o_date = date.fromisoformat(hero["out_date"]); i_date = date.fromisoformat(hero["in_date"])
+            html(f"""<div class="ah-herotile"><div class="ah-hlabel">Lowest cash out of pocket · complete round trip · two people</div>
+<div class="ah-hvalue">${hero['total_fees_two']:,.0f}</div>
+<div class="ah-hunit">in taxes and fees, total for both of you</div>
+<div class="ah-hrow">
+<div><div class="k">Plus</div><div class="v">{hero['total_points_two']:,} Amex points</div></div>
+<div><div class="k">Where</div><div class="v">{_esc(hero['destination_city'])}, {_esc(hero['destination_country'])}</div></div>
+<div><div class="k">When</div><div class="v">{_fmt_day(o_date)} → {_fmt_day(i_date)} · {hero['trip_days']} days</div></div>
+<div><div class="k">Score</div><div class="v">{hero['score']:.0f}/100</div></div>
+</div></div>""")
         else:
-            st.markdown('<div class="ah-hero"><div class="ah-label">No complete round trip with known fees yet</div></div>', unsafe_allow_html=True)
+            html('<div class="ah-herotile"><div class="ah-hlabel">Lowest cash out of pocket</div><div class="ah-hvalue">—</div>'
+                        '<div class="ah-hunit">No complete round trip with known fees yet.</div></div>')
     with h2:
-        new_trips = sum(1 for r in trips if trip_is_new(r, last_started))
-        m1, m2 = st.columns(2)
-        m1.metric("Round trips found", len(trips), f"{new_trips} new" if new_trips else None)
-        m2.metric("Qualifying one-ways", len(awards))
-        m3, m4 = st.columns(2)
-        fewest = min(trips, key=lambda r: r["total_points_two"] or 10**9) if trips else None
-        m3.metric("Fewest points, round trip", f"{fewest['total_points_two'] // 1000}k" if fewest and fewest["total_points_two"] else "—",
-                  fewest["destination_city"] if fewest else None)
-        m4.metric("API", icon, status_text.split(" at ")[0] if status_text else "")
+        html(api_tile())
+        st.write("")
+        if st.button("🔄 Scan now", use_container_width=True, type="primary", disabled=not settings.has_api_key, help="About a minute; ~10 API calls."):
+            bar = st.progress(0.0, text="Starting…")
+            with st.spinner("Searching Seats.aero…"):
+                outcome = run_scan(settings, db, profile=profile, trigger="dashboard", send_alerts=True,
+                                   progress=lambda i, n, label: bar.progress(i / n, text=f"[{i}/{n}] {label}"))
+            bar.empty()
+            st.toast(f"Scan done: {len(outcome.result.qualifying)} awards, {len(outcome.round_trips)} trips, {outcome.new_round_trips} new")
+            st.rerun()
 
+    new_trips = sum(1 for r in trips if trip_is_new(r, last_started))
+    fewest = min(trips, key=lambda r: r["total_points_two"] or 10**9) if trips else None
+    html('<div class="ah-stats"></div>')
+    s1, s2, s3, s4 = st.columns(4)
+    html(tile("Round trips found", f"{len(trips):,}", f"<b>{new_trips}</b> new since last scan" if new_trips else "none new since last scan"), s1)
+    html(tile("Qualifying one-way awards", f"{len(awards):,}", "two seats, fresh, within your caps"), s2)
+    html(tile("Fewest points, round trip", f"{fewest['total_points_two'] // 1000}k" if fewest and fewest["total_points_two"] else "—",
+                     f"for two · <b>{_esc(fewest['destination_city'])}</b>" if fewest else ""), s3)
+    if last and last.get("finished_at"):
+        fin = pacific(last["finished_at"])            # e.g. "Oct 28, 2026 11:30 AM PDT"
+        scan_val, scan_sub = fin.split(",")[0], fin.split(" ", 3)[-1] + f" · <b>{_esc(last['status'])}</b> · {last['calls_made']} API calls"
+    else:
+        scan_val, scan_sub = "never", "press Scan now"
+    html(tile("Last scan", scan_val, scan_sub), s4)
+    st.write("")
+
+    if not trips and not awards:
+        return
     if not trips:
         st.info("One-way awards were found but no outbound/return pair fits your trip length. Widen the trip length or window in **Search**.")
     else:
@@ -342,10 +560,9 @@ def page_best_deals() -> None:
         cols = st.columns(3)
         for idx, (row, alts) in enumerate(cards):
             with cols[idx % 3]:
-                st.markdown(deal_card(rt_from_row(row), row, is_new=trip_is_new(row, last_started), alternatives=alts, cfg=cfg, rank=idx + 1,
-                                      emphasis="points" if mode == "Fewest points" else "cash",
-                                      alt_label="other date option" if per_dest else "other return date"),
-                            unsafe_allow_html=True)
+                html(deal_card(rt_from_row(row), row, is_new=trip_is_new(row, last_started), alternatives=alts, cfg=cfg, rank=idx + 1,
+                               emphasis="points" if mode == "Fewest points" else "cash",
+                               alt_label="other date option" if per_dest else "other return date"))
         b1, b2 = st.columns([1, 4])
         if len(all_cards) > len(cards) and b1.button(f"Show more ({len(all_cards) - len(cards)} left)"):
             st.session_state["cards_limit"] = limit + 9
@@ -672,5 +889,5 @@ name after `NTFY_TOPIC=`, save, and press **Send test alert** below.
             st.write("No runs yet.")
 
 
-PAGES = {"Best Deals": page_best_deals, "Search": page_search, "Settings": page_settings}
+PAGES = {"Home": page_home, "Best Deals": page_best_deals, "Search": page_search, "Settings": page_settings}
 PAGES[page]()
