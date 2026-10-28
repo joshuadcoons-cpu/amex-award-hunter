@@ -208,6 +208,11 @@ def _esc(text) -> str:
     return (str(text) if text is not None else "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
+def trip_is_nonstop(row: dict) -> bool:
+    t = rt_from_row(row)
+    return _leg_stops(t.outbound.award) == "nonstop" and _leg_stops(t.inbound.award) == "nonstop"
+
+
 def trip_is_new(row: dict, last_started: str | None) -> bool:
     return bool(last_started) and (row.get("first_seen_at") or "") >= last_started
 
@@ -636,9 +641,10 @@ def page_best_deals() -> None:
         st.info("One-way awards were found but no outbound/return pair fits your trip length. Widen the trip length or window in **Search**.")
     else:
         st.subheader("Top complete trips")
-        c1, c2, c3, c4 = st.columns([2.2, 1, 0.9, 0.9])
+        c1, c2, c3, c4, c5 = st.columns([2.2, 1, 0.8, 0.9, 0.9])
         mode = c1.radio("Rank by", ["Least cash", "Fewest points", "All-in cost", "Best overall"], horizontal=True)
         per_dest = c4.checkbox("One per destination", True, help="Off = one card per destination and departure date.")
+        nonstop_only = c5.checkbox("Nonstop only", False, help="Both the outbound and the return must be nonstop.")
         fees_known = [r["total_fees_two"] for r in trips if r["total_fees_two"] is not None]
         cash_default = min(5000, int(max(fees_known) // 100 * 100 + 100)) if fees_known else 5000
         max_cash = c2.number_input("Max cash for two ($)", 0, 5000, cash_default, step=100)
@@ -648,14 +654,18 @@ def page_best_deals() -> None:
             st.session_state["cards_limit"] = 9
         ranked = rank_trips(trips, mode, cfg)
         ranked = [r for r in ranked if (r["total_fees_two"] is None or r["total_fees_two"] <= max_cash) and (not only_new or trip_is_new(r, last_started))]
+        if nonstop_only:
+            ranked = [r for r in ranked if trip_is_nonstop(r)]
         limit = st.session_state.get("cards_limit", 9)
         all_cards = dedupe_trips(ranked, per_destination=per_dest)
         cards = all_cards[:limit]
         sort_hint = {"Least cash": "sorted by cash for two, then points", "Fewest points": "sorted by Amex points for two, then cash",
                      "All-in cost": f"sorted by cash + points at {cfg.cents_per_point:g}¢ each", "Best overall": "sorted by deal score"}[mode]
-        st.caption(f"#1 is best · {sort_hint}" + (" · one card per destination" if per_dest else " · one card per destination and departure date"))
+        st.caption(f"#1 is best · {sort_hint}" + (" · one card per destination" if per_dest else " · one card per destination and departure date")
+                   + (" · nonstop both ways only" if nonstop_only else ""))
         if not cards:
-            st.info("No trips match these filters.")
+            st.info("No trips match these filters." + (" No round trip is nonstop in both directions right now; untick *Nonstop only* "
+                                                        "or set *Max connections* to 0 on the Search page to search for them specifically." if nonstop_only else ""))
         cols = st.columns(3)
         for idx, (row, alts) in enumerate(cards):
             with cols[idx % 3]:
