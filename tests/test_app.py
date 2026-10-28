@@ -62,6 +62,7 @@ def test_dashboard_pages_render(seeded_db_path, page, monkeypatch):
     if page == "Home":
         html = " ".join(m.value for m in at.markdown)
         assert "How Amex Award Hunter works" in html and "Scoring weights" in html and "Score tiers" in html
+        assert "When to go calendar" in html
     if page == "Best Deals":
         assert "Rome" in body
 

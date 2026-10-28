@@ -27,6 +27,7 @@ from award_hunter.search import SearchProfile, build_plan, to_rows
 from award_hunter.transfer_bonuses import TransferEngine
 from award_hunter.transfer_partners import PROGRAMS, SWEET_SPOTS, sweet_spot
 from award_hunter.watchlist import Watch, match_watches, resolve_destinations
+from award_hunter.seasonality import AVOID, CAUTION, GOOD, LABELS, TIMING_NOTES, month_summary, rating_for
 
 st.set_page_config(page_title="Amex Award Hunter", page_icon="✈️", layout="wide")
 configure_logging()
@@ -539,6 +540,51 @@ def watchlist_section() -> None:
                     st.rerun()
 
 
+SEASON_FILL = {GOOD: "#9fd9b5", CAUTION: "#f6dc8f", AVOID: "#f2a8a7"}
+SEASON_INK = {GOOD: "#0f6b2f", CAUTION: "#7a4b00", AVOID: "#8a1f1e"}
+
+
+def when_to_go_svg(start: date, months: int = 12, found_days: set | None = None) -> str:
+    """Year calendar coloured by historical award-space season, with a dot where the latest scan found two seats."""
+    found_days = found_days or set()
+    cols, cell, gap = 4, 15.5, 2
+    mw = 7 * (cell + gap) + 26      # month block width
+    mh = 7 * (cell + gap) + 38      # title + 6 week rows
+    rows_n = -(-months // cols)
+    W, H = cols * (mw + 18), rows_n * (mh + 12) + 4
+    parts = []
+    y, m = start.year, start.month
+    for idx in range(months):
+        first = date(y, m, 1)
+        bx, by = (idx % cols) * (mw + 18), (idx // cols) * (mh + 12)
+        top, _ = month_summary(y, m)
+        parts.append(f'<text x="{bx}" y="{by + 14}" font-size="13.5" font-weight="700" fill="#0b0b0b">{first:%B %Y}</text>')
+        parts.append(f'<text x="{bx + mw - 26}" y="{by + 14}" text-anchor="end" font-size="11.5" font-weight="600" fill="{SEASON_INK[top]}">{LABELS[top]}</text>')
+        for i, wd in enumerate("MTWTFSS"):
+            parts.append(f'<text x="{bx + i * (cell + gap) + cell / 2:.1f}" y="{by + 30}" text-anchor="middle" font-size="9.5" fill="#52514e">{wd}</text>')
+        day = first
+        while day.month == m:
+            r, why = rating_for(day)
+            week = (day.day + first.weekday() - 1) // 7
+            cx = bx + day.weekday() * (cell + gap)
+            cy = by + 36 + week * (cell + gap)
+            dim = ' opacity="0.45"' if day < date.today() else ""
+            parts.append(f'<rect x="{cx:.1f}" y="{cy:.1f}" width="{cell}" height="{cell}" rx="3" fill="{SEASON_FILL[r]}"{dim}>'
+                         f'<title>{day:%a %b %-d, %Y}: {LABELS[r]} — {why}' + (" · two business seats found in the latest scan" if day in found_days else "") + '</title></rect>')
+            if day in found_days:
+                parts.append(f'<circle cx="{cx + cell / 2:.1f}" cy="{cy + cell / 2:.1f}" r="3" fill="#0b0b0b"></circle>')
+            day += timedelta(days=1)
+        m += 1
+        if m == 13:
+            m, y = 1, y + 1
+    legend = "".join(f'<div><span class="sw" style="background:{SEASON_FILL[k]};border:1px solid {SEASON_INK[k]}"></span><b>{LABELS[k]}</b> '
+                     f'<small>{ {GOOD: "most space, lowest prices", CAUTION: "shoulder or holiday week", AVOID: "peak demand, little saver space"}[k]}</small></div>'
+                     for k in (GOOD, CAUTION, AVOID))
+    legend += '<div><span class="sw" style="background:#fff;border:1px solid #c9c8c1;position:relative"></span><b>•</b> <small>two business seats found in the latest scan</small></div>'
+    return (f'<svg viewBox="0 0 {W:.0f} {H:.0f}" width="100%" role="img" aria-label="When to go calendar">{"".join(parts)}</svg>'
+            f'<div class="ah-legend">{legend}</div>')
+
+
 def rank_trips(rows: list[dict], mode: str, cfg) -> list[dict]:
     big = 10**12
     if mode == "Least cash":
@@ -646,6 +692,15 @@ def page_home() -> None:
     st.button("See today's Best Deals →", type="primary", on_click=lambda: st.session_state.update(nav="Best Deals"))
 
     bonus_panel("home")
+
+    html('<div class="ah-home-h">When to go</div>')
+    html('<div class="ah-home-p">Historical pattern for West Coast → Europe business awards: green weeks have the most space and the '
+         'lowest dynamic prices, red weeks are peak demand where saver seats are rare. Holiday weeks move each year and are computed. '
+         'Past days are faded. A dot marks a departure date where the latest scan actually found two business seats.</div>')
+    found = {date.fromisoformat(a["travel_date"]) for a in db.current_awards(qualifying_only=True, direction="outbound")}
+    html(when_to_go_svg(date.today().replace(day=1), 12, found))
+    tn = "".join(f"<div><b>{when}</b><br><small>{what}</small></div>" for when, what in TIMING_NOTES)
+    html(f'<div class="ah-legend" style="display:grid;grid-template-columns:repeat(3,1fr);margin-top:14px">{tn}</div>')
 
     html('<div class="ah-home-h">How it works</div>')
     html(flow_svg())
