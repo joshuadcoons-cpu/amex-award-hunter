@@ -46,6 +46,15 @@ else
 fi
 chmod +x *.command scripts/*.sh 2>/dev/null || true
 xattr -dr com.apple.quarantine . 2>/dev/null || true
+
+# If the dashboard is running on the old files, restart it so the new version loads.
+if [ "$BEFORE" != "$AFTER" ] && curl -s -o /dev/null "http://localhost:8501/" 2>/dev/null; then
+  echo
+  echo "The dashboard is open on the old version - restarting it..."
+  pkill -f "streamlit run app.py" 2>/dev/null || true
+  sleep 2
+  open "Open Award Hunter.command"
+fi
 echo
-echo "Done. If the dashboard is open, close its window and open it again to load the new version."
+echo "Done."
 read -r -p "Press Return to close." _

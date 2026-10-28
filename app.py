@@ -30,6 +30,27 @@ from award_hunter.transfer_partners import PROGRAMS
 st.set_page_config(page_title="Amex Award Hunter", page_icon="✈️", layout="wide")
 configure_logging()
 
+
+def _version_on_disk() -> str | None:
+    """Version string in award_hunter/__init__.py right now (the imported module keeps the old one after an update)."""
+    import re
+    from pathlib import Path
+    try:
+        text = (Path(__file__).resolve().parent / "award_hunter" / "__init__.py").read_text(encoding="utf-8")
+        m = re.search(r'__version__\s*=\s*"([^"]+)"', text)
+        return m.group(1) if m else None
+    except OSError:
+        return None
+
+
+import award_hunter as _ah  # noqa: E402
+
+if (_disk := _version_on_disk()) and getattr(_ah, "__version__", None) != _disk:
+    st.warning(f"A new version ({_disk}) was downloaded while the dashboard was running. "
+               "Close the dashboard window (the one that says *Starting Amex Award Hunter*) and double-click "
+               "**Open Award Hunter.command** again to load it.", icon="🔄")
+    st.stop()
+
 VERIFY_WARNING = ("**Verify both award seats directly with the airline before transferring Amex points. "
                   "Transfers are generally irreversible.** All results are cached Seats.aero observations, not reservations.")
 
