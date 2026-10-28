@@ -180,10 +180,12 @@ def deal_card(t: RoundTrip, row: dict, *, is_new: bool, alternatives: int, cfg, 
         link += f'<a href="{out_url}" target="_blank">Verify out &rarr;</a>'
     if in_url:
         link += (" &nbsp;·&nbsp; " if link else "") + f'<a href="{in_url}" target="_blank">Verify return &rarr;</a>'
-    alt = f"+{alternatives} more {alt_label}" if alternatives else ""
+    alt = f"+{alternatives} {alt_label}" if alternatives else ""
     rank_html = f'<span class="ah-rank">#{rank}</span> ' if rank else ""
     cash_cls, pts_cls = ("ah-cash", "ah-pts") if emphasis != "points" else ("ah-pts", "ah-cash")
-    all_in_txt = (f"All-in ~${all_in:,.0f} at {cfg.cents_per_point:g}&cent;/pt" + (f" incl. ~${extras:,.0f} ground/positioning" if extras else "")
+    extras_detail = "; ".join(x for x in (t.ground_cost_note, t.positioning_note) if x)
+    all_in_txt = ((f'<span title="Cash + points at {cfg.cents_per_point:g}&cent; each' + (f'. Extras: {_esc(extras_detail)}' if extras_detail else "")
+                   + f'">All-in ~${all_in:,.0f}</span>') + (f" &middot; +${extras:,.0f} extras" if extras else "")
                   if all_in is not None else "")
     legs = ""
     for label, leg in (("Out", t.outbound), ("Back", t.inbound)):
