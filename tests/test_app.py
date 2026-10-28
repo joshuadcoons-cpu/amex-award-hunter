@@ -111,3 +111,24 @@ def test_home_button_navigates_to_best_deals(seeded_db_path, monkeypatch):
     btn.click().run()
     assert not at.exception, [e.value for e in at.exception]
     assert at.sidebar.radio[0].value == "Best Deals"
+
+
+def test_search_reset_button_restores_defaults(seeded_db_path, monkeypatch):
+    from streamlit.testing.v1 import AppTest
+    from award_hunter.database import Database
+    from award_hunter.scheduler import load_profile
+
+    monkeypatch.setenv("DATABASE_PATH", str(seeded_db_path))
+    monkeypatch.setenv("SEATS_AERO_API_KEY", FAKE_KEY)
+    import streamlit as st
+    st.cache_resource.clear()
+    at = AppTest.from_file(str(APP), default_timeout=60)
+    at.run()
+    at.sidebar.radio[0].set_value("Search").run()
+    btn = next(b for b in at.button if "Reset" in b.label)
+    btn.click().run()
+    assert not at.exception, [e.value for e in at.exception]
+    d = Database(seeded_db_path)
+    p = load_profile(d)
+    d.close()
+    assert p.origins == SearchProfile().origins and p.max_amex_points_per_passenger == 90_000 and p.window_days == 90

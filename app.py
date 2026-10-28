@@ -857,8 +857,19 @@ def page_best_deals() -> None:
 # --------------------------------------------------------------------------- #
 def page_search() -> None:
     global profile
-    st.title("Search")
-    st.caption("Set what you're looking for, then press **Search Awards**. One search is about 10–20 of your 1,000 daily Seats.aero calls.")
+    t1, t2 = st.columns([4, 1.3])
+    t1.title("Search")
+    t1.caption("Set what you're looking for, then press **Search Awards**. One search is about 10–20 of your 1,000 daily Seats.aero calls.")
+    t2.write("")
+    if t2.button("↺ Reset to original settings", use_container_width=True,
+                 help="Puts every search setting back to how it was when installed: SAN/LAX/SFO/SEA to Europe minus France, "
+                      "90 days from two weeks out, 7–14 day trips, 2 seats, up to 90k points and $700 fees per person, max 2 connections."):
+        save_profile(db, SearchProfile())
+        profile = SearchProfile()
+        st.session_state["search_reset_done"] = True
+        st.rerun()
+    if st.session_state.pop("search_reset_done", False):
+        st.success("Search settings reset to the originals. Press **Search Awards** to scan with them.")
     with st.form("search_form"):
         col1, col2 = st.columns(2)
         with col1:
