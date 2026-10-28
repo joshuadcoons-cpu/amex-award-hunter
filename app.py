@@ -112,6 +112,8 @@ CARD_CSS = """
 .ah-card .ah-leg { display: grid; grid-template-columns: 1fr auto; gap: 6px 12px; font-size: .9rem; color: var(--ah-ink);
                    padding: 6px 0; border-top: 1px solid var(--ah-border); }
 .ah-card .ah-leg .ah-muted { color: var(--ah-muted); }
+.ah-rank { display: inline-block; min-width: 1.9em; text-align: center; padding: 1px 6px; border-radius: 8px; background: var(--ah-ink); color: var(--ah-surface);
+           font-size: .8rem; font-weight: 700; margin-right: 6px; vertical-align: middle; }
 .ah-badge { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: .74rem; font-weight: 600; margin-left: 6px; vertical-align: middle; }
 .ah-badge.new { background: var(--ah-good-soft); color: var(--ah-good-ink); }
 .ah-badge.tier { background: var(--ah-accent-soft); color: var(--ah-accent); }
@@ -149,7 +151,8 @@ def trip_is_new(row: dict, last_started: str | None) -> bool:
     return bool(last_started) and (row.get("first_seen_at") or "") >= last_started
 
 
-def deal_card(t: RoundTrip, row: dict, *, is_new: bool, alternatives: int, cfg) -> str:
+def deal_card(t: RoundTrip, row: dict, *, is_new: bool, alternatives: int, cfg, rank: int | None = None,
+              emphasis: str = "cash", alt_label: str = "other return date") -> str:
     o, i = t.outbound.award, t.inbound.award
     cash = (f"${t.total_fees_two_major:,.0f}" + ("" if t.fees_complete else "+")) if t.total_fees_two_major is not None else "n/a"
     cash_sub = "cash for two, taxes & fees" + ("" if t.fees_complete else " (one leg missing fees)") if t.total_fees_two_major is not None else "fees not reported"
@@ -163,7 +166,9 @@ def deal_card(t: RoundTrip, row: dict, *, is_new: bool, alternatives: int, cfg) 
         badges += '<span class="ah-badge warn">open-jaw</span>'
     info = PROGRAMS.get(o.source)
     link = f'<a href="{info.booking_url}" target="_blank">Verify &amp; book on {_esc(info.program_name)} &rarr;</a>' if info and info.booking_url else ""
-    alt = f"+{alternatives} other return date{'s' if alternatives != 1 else ''}" if alternatives else ""
+    alt = f"+{alternatives} {alt_label}{'s' if alternatives != 1 else ''}" if alternatives else ""
+    rank_html = f'<span class="ah-rank">#{rank}</span> ' if rank else ""
+    cash_cls, pts_cls = ("ah-cash", "ah-pts") if emphasis != "points" else ("ah-pts", "ah-cash")
     all_in_txt = f"All-in about ${all_in:,.0f} at {cfg.cents_per_point:g}&cent;/pt" if all_in is not None else ""
     legs = ""
     for label, leg in (("Out", t.outbound), ("Back", t.inbound)):
@@ -181,11 +186,11 @@ def deal_card(t: RoundTrip, row: dict, *, is_new: bool, alternatives: int, cfg) 
                  f'<div style="text-align:right">{fee}<div class="ah-muted">{(leg.amex.amex_points_per_passenger or 0) // 1000}k pts/pp</div></div></div>')
     return f"""
 <div class="ah-card">
-  <div class="ah-top"><div><span class="ah-dest">{_esc(t.destination_city)}, {_esc(t.destination_country)}</span>{badges}
+  <div class="ah-top"><div>{rank_html}<span class="ah-dest">{_esc(t.destination_city)}, {_esc(t.destination_country)}</span>{badges}
     <div class="ah-dates">{_fmt_day(o.travel_date)} &rarr; {_fmt_day(i.travel_date)} &middot; {t.trip_days} days &middot; business class for 2</div></div></div>
   <div class="ah-money">
-    <div><div class="ah-cash">{cash}</div><div class="ah-sub">{cash_sub}</div></div>
-    <div><div class="ah-pts">{pts} pts</div><div class="ah-sub">Amex points for two</div></div>
+    <div><div class="{cash_cls}">{cash}</div><div class="ah-sub">{cash_sub}</div></div>
+    <div><div class="{pts_cls}">{pts} pts</div><div class="ah-sub">Amex points for two</div></div>
   </div>
   {legs}
   <div class="ah-foot"><span>{all_in_txt}{(" &middot; " + alt) if all_in_txt and alt else alt}</span>{link}</div>
@@ -205,18 +210,19 @@ def rank_trips(rows: list[dict], mode: str, cfg) -> list[dict]:
     return sorted(rows, key=key)
 
 
-def dedupe_trips(rows: list[dict]) -> list[tuple[dict, int]]:
-    """Collapse trips that share destination + outbound date; keep the first (best-ranked) and count the rest."""
+def dedupe_trips(rows: list[dict], *, per_destination: bool = False) -> list[tuple[dict, int]]:
+    """Keep the first (best-ranked) trip per destination (or per destination + outbound date) and count the rest."""
     seen: dict[tuple, int] = {}
     kept: list[dict] = []
+    keyf = (lambda r: (r["destination_city"],)) if per_destination else (lambda r: (r["destination_city"], r["out_date"]))
     for r in rows:
-        k = (r["destination_city"], r["out_date"])
+        k = keyf(r)
         if k in seen:
             seen[k] += 1
             continue
         seen[k] = 0
         kept.append(r)
-    return [(r, seen[(r["destination_city"], r["out_date"])]) for r in kept]
+    return [(r, seen[keyf(r)]) for r in kept]
 
 
 def api_status() -> tuple[str, str]:
@@ -313,30 +319,39 @@ def page_best_deals() -> None:
         st.info("One-way awards were found but no outbound/return pair fits your trip length. Widen the trip length or window in **Search**.")
     else:
         st.subheader("Top complete trips")
-        c1, c2, c3 = st.columns([2, 1, 1])
-        mode = c1.radio("Rank by", ["Least cash", "Fewest points", "All-in cost", "Best overall"], horizontal=True, label_visibility="collapsed")
+        c1, c2, c3, c4 = st.columns([2.2, 1, 0.9, 0.9])
+        mode = c1.radio("Rank by", ["Least cash", "Fewest points", "All-in cost", "Best overall"], horizontal=True)
+        per_dest = c4.checkbox("One per destination", True, help="Off = one card per destination and departure date.")
         fees_known = [r["total_fees_two"] for r in trips if r["total_fees_two"] is not None]
         cash_default = min(5000, int(max(fees_known) // 100 * 100 + 100)) if fees_known else 5000
         max_cash = c2.number_input("Max cash for two ($)", 0, 5000, cash_default, step=100)
         only_new = c3.checkbox("New only", False)
+        if st.session_state.get("rank_mode") != mode:
+            st.session_state["rank_mode"] = mode
+            st.session_state["cards_limit"] = 9
         ranked = rank_trips(trips, mode, cfg)
         ranked = [r for r in ranked if (r["total_fees_two"] is None or r["total_fees_two"] <= max_cash) and (not only_new or trip_is_new(r, last_started))]
         limit = st.session_state.get("cards_limit", 9)
-        all_cards = dedupe_trips(ranked)
+        all_cards = dedupe_trips(ranked, per_destination=per_dest)
         cards = all_cards[:limit]
+        sort_hint = {"Least cash": "sorted by cash for two, then points", "Fewest points": "sorted by Amex points for two, then cash",
+                     "All-in cost": f"sorted by cash + points at {cfg.cents_per_point:g}¢ each", "Best overall": "sorted by deal score"}[mode]
+        st.caption(f"#1 is best · {sort_hint}" + (" · one card per destination" if per_dest else " · one card per destination and departure date"))
         if not cards:
             st.info("No trips match these filters.")
         cols = st.columns(3)
         for idx, (row, alts) in enumerate(cards):
             with cols[idx % 3]:
-                st.markdown(deal_card(rt_from_row(row), row, is_new=trip_is_new(row, last_started), alternatives=alts, cfg=cfg),
+                st.markdown(deal_card(rt_from_row(row), row, is_new=trip_is_new(row, last_started), alternatives=alts, cfg=cfg, rank=idx + 1,
+                                      emphasis="points" if mode == "Fewest points" else "cash",
+                                      alt_label="other date option" if per_dest else "other return date"),
                             unsafe_allow_html=True)
         b1, b2 = st.columns([1, 4])
         if len(all_cards) > len(cards) and b1.button(f"Show more ({len(all_cards) - len(cards)} left)"):
             st.session_state["cards_limit"] = limit + 9
             st.rerun()
-        b2.caption(f"Showing {len(cards)} of {len(all_cards)} trips, one per destination and departure date; "
-                   f"\"+N other return dates\" on a card means the same outbound pairs with other returns.")
+        b2.caption(f"Showing {len(cards)} of {len(all_cards)} cards ({len(ranked)} trips). "
+                   f"\"+N other …\" on a card means more combinations exist for that destination; turn off \"One per destination\" to see them.")
 
         # Cash vs points: one series, lower-left is better.
         pts_rows = [r for r in trips if r["fees_complete"] and r["total_fees_two"] is not None and r["total_points_two"]]
