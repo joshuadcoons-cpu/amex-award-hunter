@@ -25,7 +25,8 @@ from award_hunter.scheduler import (
 from award_hunter.scoring import PRIORITY_PRESETS, all_in_cost_usd, fees_to_usd
 from award_hunter.search import SearchProfile, build_plan, to_rows
 from award_hunter.transfer_bonuses import TransferEngine
-from award_hunter.transfer_partners import PROGRAMS
+from award_hunter.transfer_partners import PROGRAMS, SWEET_SPOTS, sweet_spot
+from award_hunter.watchlist import Watch, match_watches, resolve_destinations
 
 st.set_page_config(page_title="Amex Award Hunter", page_icon="✈️", layout="wide")
 configure_logging()
@@ -138,6 +139,9 @@ CARD_CSS = """
 .ah-badge.new { background: var(--ah-good-soft); color: var(--ah-good-ink); }
 .ah-badge.tier { background: var(--ah-accent-soft); color: var(--ah-accent); }
 .ah-badge.warn { background: var(--ah-warn-soft); color: var(--ah-warn-ink); }
+.ah-badge.star { background: #fff4cc; color: #6b4e00; }
+.ah-ok { color: var(--ah-good-ink); font-weight: 600; }
+.ah-short { color: var(--ah-warn-ink); font-weight: 600; }
 .ah-tile { border: 1px solid var(--ah-border); border-radius: 14px; padding: 14px 16px; background: var(--ah-surface); height: 124px;
            box-shadow: 0 1px 2px rgba(0,0,0,0.04); display: flex; flex-direction: column; justify-content: space-between; overflow: hidden; }
 .ah-tile .ah-tlabel { color: var(--ah-muted); font-size: .78rem; letter-spacing: .02em; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -190,6 +194,25 @@ def short_program(source: str, fallback: str) -> str:
     return SHORT_PROGRAM.get(source, fallback)
 
 
+BALANCE_KEY = "points_balance"
+
+
+def load_balance() -> dict:
+    raw = db.get_setting(BALANCE_KEY) or {}
+    return {"balance": int(raw.get("balance") or 0), "monthly_earn": int(raw.get("monthly_earn") or 0)}
+
+
+def affordability(points_needed: int | None, bal: dict) -> tuple[str, str]:
+    """(state, text): state in {'none','ok','short'}; text is a short human phrase."""
+    if not bal.get("balance") or points_needed is None:
+        return "none", ""
+    gap = points_needed - bal["balance"]
+    if gap <= 0:
+        return "ok", "you have enough"
+    months = f" · ~{max(1, round(gap / bal['monthly_earn']))} mo at your earn rate" if bal.get("monthly_earn") else ""
+    return "short", f"short {gap:,}{months}"
+
+
 def _leg_stops(award) -> str:
     best = award.best_option()
     stops = best.stops if best and best.stops is not None else (0 if award.direct_available else None)
@@ -218,7 +241,7 @@ def trip_is_new(row: dict, last_started: str | None) -> bool:
 
 
 def deal_card(t: RoundTrip, row: dict, *, is_new: bool, alternatives: int, cfg, rank: int | None = None,
-              emphasis: str = "cash", alt_label: str = "returns") -> str:
+              emphasis: str = "cash", alt_label: str = "returns", bal: dict | None = None) -> str:
     o, i = t.outbound.award, t.inbound.award
     cash = (f"${t.total_fees_two_major:,.0f}" + ("" if t.fees_complete else "+")) if t.total_fees_two_major is not None else "n/a"
     cash_sub = "cash for two, taxes & fees" + ("" if t.fees_complete else " (one leg missing fees)") if t.total_fees_two_major is not None else "fees not reported"
@@ -233,6 +256,11 @@ def deal_card(t: RoundTrip, row: dict, *, is_new: bool, alternatives: int, cfg, 
     bonus_pcts = {leg.amex.bonus_percent for leg in (t.outbound, t.inbound) if leg.amex.bonus_percent}
     if bonus_pcts:
         badges += f'<span class="ah-badge new">+{max(bonus_pcts):g}% bonus</span>'
+    spots = {sweet_spot(leg.award.source, leg.award.miles_per_passenger) for leg in (t.outbound, t.inbound)} - {None}
+    if spots:
+        badges += '<span class="ah-badge star">&#9733; ' + ("best price" if "best" in spots else "sweet spot") + '</span>'
+    state, afford_txt = affordability(t.total_amex_points_two, bal or {})
+    pts_sub = "Amex points for two" + (f' &middot; <span class="ah-{state}">{afford_txt}</span>' if afford_txt else "")
     info = PROGRAMS.get(o.source)
     link = f'<a href="{info.booking_url}" target="_blank">Verify &amp; book on {_esc(info.program_name)} &rarr;</a>' if info and info.booking_url else ""
     alt = f"+{alternatives} more {alt_label}" if alternatives else ""
@@ -261,7 +289,7 @@ def deal_card(t: RoundTrip, row: dict, *, is_new: bool, alternatives: int, cfg, 
   <div class="ah-dates">{_fmt_day(o.travel_date)} &rarr; {_fmt_day(i.travel_date)} &middot; {t.trip_days} days</div>
   <div class="ah-money">
     <div><div class="{cash_cls}">{cash}</div><div class="ah-sub">{cash_sub}</div></div>
-    <div><div class="{pts_cls}">{pts} pts</div><div class="ah-sub">Amex points for two</div></div>
+    <div><div class="{pts_cls}">{pts} pts</div><div class="ah-sub">{pts_sub}</div></div>
   </div>
   {legs}
   <div class="ah-foot"><span>{all_in_txt}{(" &middot; " + alt) if all_in_txt and alt else alt}</span><span class="ah-link">{link}</span></div>
@@ -436,6 +464,75 @@ def bonus_panel(key_prefix: str) -> None:
                     st.rerun()
 
 
+def watchlist_section() -> None:
+    """Watches: 'alert me the moment N seats open for this trip'. Lives on Best Deals."""
+    rows = db.watches()
+    hdr, add_col = st.columns([5, 1.2])
+    hdr.markdown('<div class="ah-home-h" style="margin-top:4px">Watchlist</div>', unsafe_allow_html=True)
+    st.caption("A watch alerts you the moment two business seats appear for a specific trip, whatever the score. "
+               "Watched dates and airports are added to every scan automatically.")
+    if rows:
+        watches = [Watch.from_row(r) for r in rows]
+        stored = db.current_awards(qualifying_only=False)
+        scored = [scored_from_row(r) for r in stored]
+        hits = match_watches([w for w in watches if w.active], scored)
+        cols = st.columns(min(len(watches), 3))
+        for i, w in enumerate(watches):
+            with cols[i % 3]:
+                n = len(hits.get(w.id, []))
+                if not w.active:
+                    html(tile(w.name, "paused", _esc(w.describe())))
+                elif n:
+                    html(tile(w.name, f"{n} match{'es' if n != 1 else ''}", _esc(w.describe()), "ok"))
+                else:
+                    html(tile(w.name, "nothing yet", _esc(w.describe()), "warn"))
+                b1, b2 = st.columns(2)
+                if b1.button("Resume" if not w.active else "Pause", key=f"w_pause_{w.id}", use_container_width=True):
+                    db.set_watch_active(w.id, not w.active); st.rerun()
+                if b2.button("Delete", key=f"w_del_{w.id}", use_container_width=True):
+                    db.delete_watch(w.id); st.rerun()
+                if n:
+                    with st.expander(f"See {n} match{'es' if n != 1 else ''}"):
+                        st.dataframe(pd.DataFrame([{
+                            "Date": s.award.travel_date.isoformat(), "Route": f"{s.award.origin} → {s.award.destination}",
+                            "Seats": s.award.remaining_seats, "Program": short_program(s.award.source, s.amex.program_name),
+                            "Nonstop": _leg_stops(s.award) == "nonstop",
+                            "Cash / pp": round(fees_to_usd(s.award.taxes_minor_units, s.award.taxes_currency, load_scoring_config(db, 2)) or 0) if s.award.fees_known else None,
+                            "Amex pts / pp": s.amex.amex_points_per_passenger, "Score": s.score.total,
+                        } for s in hits[w.id][:40]]), hide_index=True, use_container_width=True)
+    else:
+        st.info("No watches yet. Add one below, for example \"Rome, any departure May 1–20, nonstop\".")
+    with st.expander("Add a watch", expanded=not rows):
+        with st.form("watch_form", clear_on_submit=True):
+            name = st.text_input("Name", placeholder="Rome in May")
+            c1, c2 = st.columns(2)
+            countries = c1.multiselect("Countries", european_countries())
+            airports = c2.multiselect("Or specific airports", list(EUROPEAN_AIRPORTS), format_func=lambda c: f"{c} – {EUROPEAN_AIRPORTS[c].city}")
+            d1, d2 = st.columns(2)
+            date_from = d1.date_input("Earliest departure", value=date.today() + timedelta(days=30), min_value=date.today())
+            date_to = d2.date_input("Latest departure", value=date.today() + timedelta(days=60), min_value=date.today())
+            e1, e2, e3 = st.columns(3)
+            nonstop = e1.checkbox("Nonstop only", False)
+            seats = e2.number_input("Seats needed", 1, 4, 2)
+            returns = e3.checkbox("Also watch the return", True)
+            f1, f2, f3 = st.columns(3)
+            max_pts = f1.number_input("Max Amex points / person (0 = any)", 0, 300000, 0, step=5000)
+            max_cash = f2.number_input("Max cash / person one way (0 = any)", 0, 3000, 0, step=50)
+            trip = f3.slider("Trip length for the return (days)", 3, 30, (7, 14))
+            if st.form_submit_button("Add watch", type="primary"):
+                dests = resolve_destinations(airports, countries)
+                if not dests:
+                    st.error("Pick at least one country or airport.")
+                elif date_to < date_from:
+                    st.error("Latest departure must be on or after the earliest departure.")
+                else:
+                    db.add_watch(name or f"Watch {len(rows) + 1}", dests, date_from.isoformat(), date_to.isoformat(), passengers=int(seats),
+                                 nonstop_only=nonstop, max_points_pp=int(max_pts) or None, max_cash_pp_usd=float(max_cash) or None,
+                                 include_returns=returns, min_trip_days=trip[0], max_trip_days=trip[1])
+                    st.toast("Watch added. Press Scan now to check it right away; the daily scan covers it from now on.")
+                    st.rerun()
+
+
 def rank_trips(rows: list[dict], mode: str, cfg) -> list[dict]:
     big = 10**12
     if mode == "Least cash":
@@ -500,6 +597,15 @@ if last_run:
 for w in validate_security(settings):
     st.sidebar.warning(w)
 
+with st.sidebar.expander("My Amex points", expanded=False):
+    _bal = load_balance()
+    _b = st.number_input("Membership Rewards balance", 0, 10_000_000, _bal["balance"], step=5000, key="bal_balance",
+                         help="Used to mark deals you can already afford. Stored only on this computer.")
+    _e = st.number_input("Points earned per month (optional)", 0, 500_000, _bal["monthly_earn"], step=1000, key="bal_earn")
+    if (_b, _e) != (_bal["balance"], _bal["monthly_earn"]):
+        db.set_setting(BALANCE_KEY, {"balance": int(_b), "monthly_earn": int(_e)})
+        st.rerun()
+
 profile = load_profile(db)
 
 
@@ -563,6 +669,10 @@ def page_home() -> None:
 • A complete round trip for two with <b>{cash_cap}</b> or less in total fees, <b>{th.round_trip_max_points_two:,}</b> points or fewer, scoring <b>{th.round_trip_min_score:.0f}+</b>.<br>
 • A single award scoring <b>{th.new_award_min_score:.0f}+</b>; <b>{th.exceptional_min_score:.0f}+</b> is flagged exceptional.<br>
 • At most {th.max_alerts_per_run} alerts per scan; the rest are folded into one message. The same deal never alerts twice.<br><br>
+<b>&#9733; Sweet spot badge</b><br>
+An award priced at that program's realistic floor for West Coast → Europe business: {"; ".join(f"{PROGRAMS[k].program_name.split(' ')[0] if k != 'flyingblue' else 'Flying Blue'} ≤ {v['miles'] // 1000}k" for k, v in SWEET_SPOTS.items())}. "Best price" means at or under the lowest level ever seen.<br><br>
+<b>Watchlist</b><br>
+On Best Deals you can watch a specific trip ("Rome, any departure May 1–20"). The moment two seats appear you get an urgent alert, score or not.<br><br>
 <b>What is never counted as good news</b><br>
 • Programs that don't report seat counts are not treated as "two seats".<br>
 • Missing or $0 fees are "not provided", never free.<br>
@@ -593,6 +703,9 @@ def page_best_deals() -> None:
     with h1:
         if hero:
             o_date = date.fromisoformat(hero["out_date"]); i_date = date.fromisoformat(hero["in_date"])
+            _state, _txt = affordability(hero["total_points_two"], load_balance())
+            hero_you = (f'<div><div class="k">Your points</div><div class="v ah-{_state}">{"Enough &#10003;" if _state == "ok" else _txt.capitalize()}</div></div>'
+                        if _state != "none" else "")
             html(f"""<div class="ah-herotile"><div class="ah-hlabel">Lowest cash out of pocket · complete round trip · two people</div>
 <div class="ah-hvalue">${hero['total_fees_two']:,.0f}</div>
 <div class="ah-hunit">in taxes and fees, total for both of you</div>
@@ -601,6 +714,7 @@ def page_best_deals() -> None:
 <div><div class="k">Where</div><div class="v">{_esc(hero['destination_city'])}, {_esc(hero['destination_country'])}</div></div>
 <div><div class="k">When</div><div class="v">{_fmt_day(o_date)} → {_fmt_day(i_date)} · {hero['trip_days']} days</div></div>
 <div><div class="k">Score</div><div class="v">{hero['score']:.0f}/100</div></div>
+{hero_you}
 </div></div>""")
         else:
             html('<div class="ah-herotile"><div class="ah-hlabel">Lowest cash out of pocket</div><div class="ah-hvalue">—</div>'
@@ -634,6 +748,7 @@ def page_best_deals() -> None:
     st.write("")
     with st.expander("Amex transfer bonuses running now", expanded=False):
         bonus_panel("deals")
+    watchlist_section()
 
     if not trips and not awards:
         return
@@ -641,10 +756,13 @@ def page_best_deals() -> None:
         st.info("One-way awards were found but no outbound/return pair fits your trip length. Widen the trip length or window in **Search**.")
     else:
         st.subheader("Top complete trips")
+        bal = load_balance()
         c1, c2, c3, c4, c5 = st.columns([2.2, 1, 0.8, 0.9, 0.9])
         mode = c1.radio("Rank by", ["Least cash", "Fewest points", "All-in cost", "Best overall"], horizontal=True)
         per_dest = c4.checkbox("One per destination", True, help="Off = one card per destination and departure date.")
         nonstop_only = c5.checkbox("Nonstop only", False, help="Both the outbound and the return must be nonstop.")
+        affordable_only = c3.checkbox("Only what I can afford", False, disabled=not bal["balance"],
+                                      help="Enter your balance under 'My Amex points' in the sidebar.") if bal["balance"] else False
         fees_known = [r["total_fees_two"] for r in trips if r["total_fees_two"] is not None]
         cash_default = min(5000, int(max(fees_known) // 100 * 100 + 100)) if fees_known else 5000
         max_cash = c2.number_input("Max cash for two ($)", 0, 5000, cash_default, step=100)
@@ -656,6 +774,8 @@ def page_best_deals() -> None:
         ranked = [r for r in ranked if (r["total_fees_two"] is None or r["total_fees_two"] <= max_cash) and (not only_new or trip_is_new(r, last_started))]
         if nonstop_only:
             ranked = [r for r in ranked if trip_is_nonstop(r)]
+        if affordable_only:
+            ranked = [r for r in ranked if r["total_points_two"] is not None and r["total_points_two"] <= bal["balance"]]
         limit = st.session_state.get("cards_limit", 9)
         all_cards = dedupe_trips(ranked, per_destination=per_dest)
         cards = all_cards[:limit]
@@ -671,7 +791,7 @@ def page_best_deals() -> None:
             with cols[idx % 3]:
                 html(deal_card(rt_from_row(row), row, is_new=trip_is_new(row, last_started), alternatives=alts, cfg=cfg, rank=idx + 1,
                                emphasis="points" if mode == "Fewest points" else "cash",
-                               alt_label="dates" if per_dest else "returns"))
+                               alt_label="dates" if per_dest else "returns", bal=bal))
         b1, b2 = st.columns([1, 4])
         if len(all_cards) > len(cards) and b1.button(f"Show more ({len(all_cards) - len(cards)} left)"):
             st.session_state["cards_limit"] = limit + 9

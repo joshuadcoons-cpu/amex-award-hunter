@@ -28,7 +28,7 @@ from .models import AwardObservation, ScoredAward, SeatConfidence
 from .normalization import normalize_many
 from .scoring import ScoringConfig, fees_to_usd, score_award
 from .transfer_bonuses import TransferEngine
-from .transfer_partners import DEFAULT_SEARCH_SOURCES
+from .transfer_partners import DEFAULT_SEARCH_SOURCES, sweet_spot
 
 log = logging.getLogger(__name__)
 
@@ -380,6 +380,7 @@ def to_rows(scored: Iterable[ScoredAward], cfg: ScoringConfig | None = None) -> 
             "mixed_cabin": best.mixed_cabin if best else None,
             "score": s.score.total,
             "tier": s.score.tier,
+            "sweet_spot": sweet_spot(a.source, a.miles_per_passenger),
             "observed_utc": a.source_updated_at_utc.isoformat() if a.source_updated_at_utc else None,
             "age_hours": round(a.data_age_hours, 1) if a.data_age_hours is not None else None,
             "verification": a.verification.value,

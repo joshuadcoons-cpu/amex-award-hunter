@@ -65,6 +65,15 @@ Four pages, on purpose:
   priority, connection status and quota, and (advanced) editable Amex partner ratios and
   transfer bonuses, scan history.
 
+## Watchlist, sweet spots, points balance
+* `award_hunter/watchlist.py`: watches (destinations, outbound window, seats, nonstop, caps) widen each scan
+  (`profile_with_watches`) and are matched against every stored award regardless of score; new matches raise
+  urgent `watch` alerts, deduped per availability id.
+* `transfer_partners.SWEET_SPOTS`: per-program floor prices for West Coast → Europe business; `sweet_spot()`
+  returns `best` / `sweet` / None, shown as a badge and in alert headlines.
+* Points balance (`points_balance` setting, sidebar): affordability text on cards and the hero, plus an
+  "Only what I can afford" filter.
+
 ## Amex transfer bonuses
 `award_hunter/bonus_tracker.py` reads the public tracker at awardtravelfinder.com on every scheduled or
 dashboard scan (soft-fail), records new airline bonuses as **unverified**, retires expired ones, and raises a

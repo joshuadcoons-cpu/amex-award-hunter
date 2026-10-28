@@ -9,7 +9,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import Callable
 
-from .alerts import Alert, AlertSender, AlertThresholds, build_alerts, build_bonus_alerts, build_summary_alert
+from .alerts import Alert, AlertSender, AlertThresholds, build_alerts, build_bonus_alerts, build_summary_alert, build_watch_alerts
 from .bonus_tracker import sync_bonuses
 from .api_client import DailyBudget, SeatsAeroClient
 from .config import Settings
@@ -19,6 +19,7 @@ from .scoring import ScoringConfig, ScoringWeights
 from .search import INBOUND, OUTBOUND, SearchProfile, SearchResult, direction_of, run_search
 from .transfer_bonuses import TransferEngine
 from .trip_matcher import match_round_trips
+from .watchlist import Watch, match_watches, profile_with_watches
 
 log = logging.getLogger(__name__)
 
@@ -90,6 +91,7 @@ class ScanOutcome:
     alerts: list[Alert]
     alert_stats: dict[str, int] = field(default_factory=dict)
     disappeared: int = 0
+    watch_hits: dict = field(default_factory=dict)
 
 
 def run_scan(settings: Settings, db: Database, *, profile: SearchProfile | None = None, trigger: str = "manual",
@@ -104,10 +106,12 @@ def run_scan(settings: Settings, db: Database, *, profile: SearchProfile | None 
             progress(0, 1, "Checking Amex transfer bonuses")
         bonus_added = list(sync_bonuses(db).added)
     engine = TransferEngine.from_database(db)
+    watches = [Watch.from_row(r) for r in db.watches(active_only=True)]
+    search_profile = profile_with_watches(profile, watches)
     own_client = client is None
     client = client or make_client(settings, db)
     try:
-        result = run_search(client, profile, engine, cfg=cfg, db=db, trigger=trigger, progress=progress)
+        result = run_search(client, search_profile, engine, cfg=cfg, db=db, trigger=trigger, progress=progress)
     finally:
         if own_client:
             client.close()
@@ -142,7 +146,12 @@ def run_scan(settings: Settings, db: Database, *, profile: SearchProfile | None 
             new_fps.add(t.fingerprint)
 
     thresholds = load_thresholds(db)
-    alerts = build_bonus_alerts(bonus_added, settings.timezone) + build_alerts(result.qualifying, changes, trips, new_fps, thresholds, settings.timezone)
+    watch_hits = match_watches(watches, result.qualifying + result.non_qualifying, cfg)
+    for wid, hits in watch_hits.items():
+        db.record_watch_matches(wid, len(hits))
+    alerts = (build_watch_alerts(watch_hits, {w.id: w for w in watches}, settings.timezone)
+              + build_bonus_alerts(bonus_added, settings.timezone)
+              + build_alerts(result.qualifying, changes, trips, new_fps, thresholds, settings.timezone))
     stats: dict[str, int] = {}
     if send_alerts:
         sender = AlertSender(settings, db)
@@ -163,4 +172,4 @@ def run_scan(settings: Settings, db: Database, *, profile: SearchProfile | None 
                   qualifying=len(result.qualifying), round_trips=len(trips), new_awards=new_awards, errors=result.errors,
                   summary=f"{len(result.qualifying)} qualifying awards, {len(trips)} round trips, {new_awards} new, "
                           f"{disappeared} disappeared, coverage {result.coverage_summary()}")
-    return ScanOutcome(result, trips, new_awards, changes, len(new_fps), alerts, stats, disappeared)
+    return ScanOutcome(result, trips, new_awards, changes, len(new_fps), alerts, stats, disappeared, watch_hits)

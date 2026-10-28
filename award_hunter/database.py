@@ -86,6 +86,14 @@ MIGRATIONS: list[tuple[int, str]] = [
         channel TEXT NOT NULL, score REAL, payload_json TEXT, ok INTEGER NOT NULL DEFAULT 1, error TEXT);
     CREATE INDEX IF NOT EXISTS ix_alert_fp ON alert_history(fingerprint, kind);
     """),
+    (2, """
+    CREATE TABLE IF NOT EXISTS watches (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, destinations_json TEXT NOT NULL,
+        date_from TEXT NOT NULL, date_to TEXT NOT NULL, passengers INTEGER NOT NULL DEFAULT 2,
+        nonstop_only INTEGER NOT NULL DEFAULT 0, max_points_pp INTEGER, max_cash_pp_usd REAL,
+        include_returns INTEGER NOT NULL DEFAULT 1, min_trip_days INTEGER NOT NULL DEFAULT 7, max_trip_days INTEGER NOT NULL DEFAULT 14,
+        active INTEGER NOT NULL DEFAULT 1, notes TEXT, created_at TEXT NOT NULL, last_match_at TEXT, match_count INTEGER NOT NULL DEFAULT 0);
+    """),
 ]
 
 
@@ -259,6 +267,30 @@ class Database:
 
     def delete_bonus(self, bonus_id: int) -> None:
         self.execute("DELETE FROM transfer_bonuses WHERE id = ?", (bonus_id,))
+
+    # -- watchlist -----------------------------------------------------------
+    def watches(self, active_only: bool = False) -> list[dict]:
+        sql = "SELECT * FROM watches" + (" WHERE active = 1" if active_only else "") + " ORDER BY date_from, id"
+        return [dict(r) for r in self.query(sql)]
+
+    def add_watch(self, name: str, destinations: list[str], date_from: str, date_to: str, *, passengers: int = 2,
+                  nonstop_only: bool = False, max_points_pp: int | None = None, max_cash_pp_usd: float | None = None,
+                  include_returns: bool = True, min_trip_days: int = 7, max_trip_days: int = 14, notes: str | None = None) -> int:
+        cur = self.execute(
+            "INSERT INTO watches(name, destinations_json, date_from, date_to, passengers, nonstop_only, max_points_pp, max_cash_pp_usd, "
+            "include_returns, min_trip_days, max_trip_days, active, notes, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)",
+            (name, json.dumps(sorted(destinations)), date_from, date_to, passengers, 1 if nonstop_only else 0, max_points_pp, max_cash_pp_usd,
+             1 if include_returns else 0, min_trip_days, max_trip_days, notes, utcnow_iso()))
+        return int(cur.lastrowid)
+
+    def set_watch_active(self, watch_id: int, active: bool) -> None:
+        self.execute("UPDATE watches SET active = ? WHERE id = ?", (1 if active else 0, watch_id))
+
+    def delete_watch(self, watch_id: int) -> None:
+        self.execute("DELETE FROM watches WHERE id = ?", (watch_id,))
+
+    def record_watch_matches(self, watch_id: int, count: int) -> None:
+        self.execute("UPDATE watches SET last_match_at = ?, match_count = ? WHERE id = ?", (utcnow_iso(), count, watch_id))
 
     # -- runs / coverage -----------------------------------------------------
     def start_run(self, trigger: str, config: dict) -> int:

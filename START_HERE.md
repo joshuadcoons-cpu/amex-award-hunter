@@ -57,6 +57,22 @@ That's it. Leave your Mac on (or just asleep with the lid open) and it does the 
 * **Settings** — alerts (with a **Send test alert** button), the *Minimize cash / Balanced /
   Minimize points* switch, and connection status.
 
+### Watchlist: "tell me the moment seats open for THIS trip"
+On **Best Deals**, under *Watchlist → Add a watch*, pick a country (or airports) and a departure window,
+for example "Rome, any departure May 1–20, nonstop". From then on every scan covers those dates and
+airports, and the moment two business seats appear you get an urgent alert, whatever the score.
+Each watch shows how many matches exist right now; pause or delete it any time.
+
+### Sweet-spot badge
+A ★ **sweet spot** badge means the award is priced at that program's realistic floor for West Coast → Europe
+business (for example Aeroplan at 60–70k, Flying Blue at 50k or less). ★ **best price** means at or under the
+lowest level ever seen. Those are the ones to act on fast.
+
+### Your points balance
+Open **My Amex points** in the sidebar and enter your Membership Rewards balance (and, optionally, how many
+points you earn a month). Every trip then says **you have enough** or **short 40,000 · ~2 mo**, the hero
+tile shows it, and a **"Only what I can afford"** box filters the list.
+
 ### Amex transfer bonuses
 Amex regularly offers 15–40% extra miles when you transfer to a specific airline. The tool checks a public
 tracker every scan and lists what's running on the **Home** page (and under "Amex transfer bonuses running

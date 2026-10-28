@@ -26,6 +26,8 @@ def seeded_db_path(tmp_path_factory, request):
     sample = build_sample_rows()
     db = Database(path)
     save_profile(db, SearchProfile(origins=["LAX", "SFO"], destinations=["FCO", "MXP", "MAD"], start_date=date(2027, 4, 1), window_days=30, max_days_per_query=90))
+    db.add_watch("Rome in April", ["FCO"], "2027-04-01", "2027-04-30")
+    db.set_setting("points_balance", {"balance": 150000, "monthly_earn": 10000})
     settings = Settings(api_key=FAKE_KEY, database_path=path)
 
     def handler(r):
@@ -56,6 +58,7 @@ def test_dashboard_pages_render(seeded_db_path, page, monkeypatch):
     if page == "Best Deals":
         html = " ".join(m.value for m in at.markdown)
         assert "Round trips found" in html and "ah-card" in html and "cash for two" in html
+        assert "Watchlist" in html and "Rome in April" in html and ("you have enough" in html or "short" in html)
     if page == "Home":
         html = " ".join(m.value for m in at.markdown)
         assert "How Amex Award Hunter works" in html and "Scoring weights" in html and "Score tiers" in html

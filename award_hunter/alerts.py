@@ -32,7 +32,7 @@ import httpx
 
 from .config import Settings
 from .models import RoundTrip, ScoredAward
-from .transfer_partners import PROGRAMS
+from .transfer_partners import PROGRAMS, sweet_spot
 
 log = logging.getLogger(__name__)
 
@@ -94,7 +94,8 @@ def _award_headline(s: ScoredAward) -> str:
     stops = best.stops if best and best.stops is not None else (0 if a.direct_available else None)
     stop_txt = "nonstop" if stops == 0 else (f"{stops} stop" if stops == 1 else (f"{stops} stops" if stops else "stops ?"))
     pts = f"{s.amex.amex_points_per_passenger // 1000}k pts" if s.amex.amex_points_per_passenger else "pts n/a"
-    return f"{a.origin}→{a.destination} {_fmt_date(a.travel_date)} · {fees} cash + {pts} /person · {stop_txt} · {a.program_name}"
+    tag = {"best": " · ★ best-ever price", "sweet": " · ★ sweet spot"}.get(sweet_spot(a.source, a.miles_per_passenger) or "", "")
+    return f"{a.origin}→{a.destination} {_fmt_date(a.travel_date)} · {fees} cash + {pts} /person · {stop_txt} · {a.program_name}{tag}"
 
 
 def _award_body(s: ScoredAward, tz: str) -> str:
@@ -220,6 +221,21 @@ def cap_alerts(alerts: list[Alert], max_individual: int) -> tuple[list[Alert], l
                    headline=f"{len(rest)} more trips/awards passed your thresholds", priority="default")
     keep.append(digest)
     return keep, rest
+
+
+def build_watch_alerts(matches: dict[int, list[ScoredAward]], watches_by_id: dict[int, object], tz: str = "America/Los_Angeles") -> list[Alert]:
+    """One urgent alert per newly matching award for each watch. Dedupe key = watch + availability, so a seat
+    that stays open alerts once; if it disappears and comes back it alerts again (new availability id or same -> deduped)."""
+    out: list[Alert] = []
+    for wid, hits in matches.items():
+        w = watches_by_id.get(wid)
+        name = getattr(w, "name", f"watch {wid}")
+        for s in hits:
+            a = s.award
+            out.append(Alert("watch", f"watch|{wid}|{a.availability_id}|{a.remaining_seats}", f"Watch: {name}",
+                             f"Seats found for your watch \"{name}\".\n\n" + _award_body(s, tz), s.score.total,
+                             headline=f"{a.remaining_seats} seats · " + _award_headline(s), click_url=_booking_url(a.source), priority="urgent"))
+    return out
 
 
 def build_bonus_alerts(added, tz: str = "America/Los_Angeles") -> list[Alert]:
